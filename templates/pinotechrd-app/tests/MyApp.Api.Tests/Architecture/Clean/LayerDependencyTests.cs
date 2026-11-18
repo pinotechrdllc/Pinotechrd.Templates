@@ -130,10 +130,26 @@ public class LayerDependencyTests
 
         var references = System.Xml.Linq.XDocument.Load(project)
             .Descendants("ProjectReference")
-            .Select(e => Path.GetFileNameWithoutExtension((string?)e.Attribute("Include") ?? string.Empty))
+            .Select(e => ProjectName((string?)e.Attribute("Include") ?? string.Empty))
             .ToList();
 
         Assert.Contains(ReferenceRules.NameOf(ReferenceRules.BuildingBlocksInfrastructure), references);
+    }
+
+    // MSBuild accepts both separators in an Include path on every platform, but System.IO on Linux treats a backslash as
+    // part of a file name, so the project name is cut from the string itself.
+    private static string ProjectName(string include)
+    {
+        var file = include[(include.LastIndexOfAny(['\\', '/']) + 1)..];
+        return file.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ? file[..^".csproj".Length] : file;
+    }
+
+    [Fact]
+    public void ProjectNameIsReadFromPathsWithEitherSeparator()
+    {
+        Assert.Equal("A.B", ProjectName(@"..\BuildingBlocks\A.B\A.B.csproj"));
+        Assert.Equal("A.B", ProjectName("../X/A.B.csproj"));
+        Assert.Equal("A.B", ProjectName(@"..\X\A.B.csproj"));
     }
 
     [Fact]
