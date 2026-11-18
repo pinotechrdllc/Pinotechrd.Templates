@@ -7,7 +7,9 @@
   The template source must build as it is (it lists every architecture's projects). A case passes
   when the project is generated with the layout of its architecture, the placeholder name is fully
   replaced, no conditional marker or template configuration is left, its solution lists exactly its
-  projects, it builds without warnings and its tests pass. Invalid option values must be rejected.
+  projects, it builds without warnings and its tests pass. Invalid option values must be rejected. The package must hold
+  only the template content. The modular case then adds the endpoint and tests of scripts/fixtures/module-endpoint to its
+  module, and must report the contract as stale, regenerate it, build and pass its tests again.
 .PARAMETER Keep
   Keep the working directory after the run, for inspection.
 #>
@@ -24,10 +26,18 @@ $placeholders = @('MyApp', 'MyModule')
 $projectName = 'Acme.Demo'
 
 # Each case is one combination of template options that must generate a working project.
+# A case with a Fixture then adds the fixture's files to its output and checks the result (see Invoke-ModuleEndpointFixture);
+# ModuleSegment is the route segment the template derives from the module name (kebab case, see its README).
 $cases = @(
     @{ Name = 'clean-standalone'; Architecture = 'clean'; Options = @() },
-    @{ Name = 'modular-standalone'; Architecture = 'modular'; Module = 'Sales'; Options = @('--architecture', 'modular', '--module', 'Sales') }
+    @{
+        Name = 'modular-standalone'; Architecture = 'modular'; Module = 'Sales'; Options = @('--architecture', 'modular', '--module', 'Sales')
+        Fixture = 'module-endpoint'; ModuleSegment = 'sales'
+    }
 )
+
+# Files added to a generated project by a fixture step. Not template content: never packed, never in the source tree.
+$fixtures = Join-Path $PSScriptRoot 'fixtures'
 
 # Generated and checked (names, layout, solution) but not built or tested, because they differ from a full case only
 # by a name: the default module name, and --module given to clean, which is accepted and ignored (clean layout, no
@@ -177,6 +187,103 @@ function Assert-SolutionMatchesProjects([string]$Solution) {
     if ($unlisted) { throw "Projects missing from the solution: $($unlisted -join ', ')" }
 }
 
+# The package holds the template content and the package metadata only: nothing from scripts/, fixtures included.
+function Assert-PackageContent([string]$Package) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($Package)
+    try {
+        $entries = @($zip.Entries | ForEach-Object { $_.FullName -replace '\\', '/' })
+    }
+    finally {
+        $zip.Dispose()
+    }
+    $outside = $entries | Where-Object { $_ -like 'content/*' -and $_ -notlike 'content/templates/*' }
+    if ($outside) { throw "The package has content outside templates/: $($outside -join ', ')" }
+    $leaked = $entries | Where-Object { $_ -like 'scripts/*' -or $_ -like '*/scripts/*' -or $_ -like '*/fixtures/module-endpoint/*' }
+    if ($leaked) { throw "The package has files of the test scripts: $($leaked -join ', ')" }
+}
+
+# Copies every *.cs file under $Source to the same relative path under $Destination, replacing the placeholders (keys of
+# $Names) in the paths and the content, as the template engine would. The fixture folder is not template content.
+function Copy-Fixture([string]$Source, [string]$Destination, [hashtable]$Names) {
+    foreach ($file in Get-ChildItem -LiteralPath $Source -Recurse -File -Filter '*.cs') {
+        $relative = [IO.Path]::GetRelativePath($Source, $file.FullName)
+        $text = [IO.File]::ReadAllText($file.FullName)
+        foreach ($placeholder in $Names.Keys) {
+            $relative = $relative.Replace($placeholder, $Names[$placeholder])
+            $text = $text.Replace($placeholder, $Names[$placeholder])
+        }
+        $target = Join-Path $Destination $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+        [IO.File]::WriteAllText($target, $text, [Text.UTF8Encoding]::new($false))
+        Write-Host "Added $([IO.Path]::GetRelativePath((Split-Path -Parent $Destination), $target))"
+    }
+}
+
+# The path a developer follows on day one in a modular project: add an endpoint to the module, see the committed contract
+# reported as stale, regenerate it with the documented command, and get routing, tagging and validation right. Runs from
+# inside the generated project, after its own build and tests passed.
+function Invoke-ModuleEndpointFixture([string]$Root, [hashtable]$Case) {
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $source = Join-Path $fixtures $Case.Fixture
+    $names = @{ MyApp = $projectName; MyModule = $Case.Module }
+    $solution = Join-Path $Root "$projectName.slnx"
+    $apiTests = Join-Path $Root "tests/$projectName.Api.Tests/$projectName.Api.Tests.csproj"
+    $contract = Join-Path $Root 'contract/openapi.v1.json'
+    $path = "/api/v1/$($Case.ModuleSegment)/widgets"
+
+    Write-Host "== Fixture $($Case.Fixture): add the module endpoint and its tests"
+    $testSource = Join-Path $source 'tests'
+    if (-not (Get-ChildItem -LiteralPath $testSource -Recurse -File -Filter '*.cs')) {
+        throw "Fixture $($Case.Fixture): no fixture test. Add the test of the endpoint (*.cs) under $testSource."
+    }
+    Copy-Fixture (Join-Path $source 'src') (Join-Path $Root 'src') $names
+    Copy-Fixture $testSource (Join-Path $Root 'tests') $names
+
+    Write-Host "== Fixture $($Case.Fixture): the committed contract is reported as stale"
+    Invoke-Checked 'Building with the fixture' { dotnet build $solution --configuration Release --nologo -warnaserror }
+    $staleTest = 'FullyQualifiedName~.Contract.ContractIsCurrentTests.ServedDocumentEqualsTheCommittedContract'
+    $report = dotnet test $apiTests --configuration Release --no-build --nologo --filter $staleTest 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) { throw "The contract test passed with a new endpoint and the old contract: a stale contract is not detected.`n$report" }
+    if (-not $report.Contains($path, [StringComparison]::Ordinal)) { throw "The contract test failed, but without naming $path.`n$report" }
+    $global:LASTEXITCODE = 0
+    Write-Host "Stale contract detected: the contract test fails and names $path."
+
+    Write-Host "== Fixture $($Case.Fixture): regenerate the contract"
+    $before = (Get-FileHash -LiteralPath $contract).Hash
+    Invoke-Checked 'Regenerating the contract' { dotnet build "src/$projectName.Api" -p:UpdateContract=true --nologo }
+    if ((Get-FileHash -LiteralPath $contract).Hash -eq $before) { throw "Regenerating the contract did not change $contract." }
+    $paths = (Get-Content -LiteralPath $contract -Raw | ConvertFrom-Json -AsHashtable).paths
+    $operation = $paths[$path].post
+    if (-not $operation) { throw "The regenerated contract has no POST $path." }
+    if ($operation.operationId -cne 'CreateWidget') { throw "POST $path has the operationId '$($operation.operationId)', expected 'CreateWidget'." }
+    $tags = @($operation.tags)
+    if ($tags.Count -ne 1 -or $tags[0] -cne $Case.Module) { throw "POST $path has the tags '$($tags -join ', ')', expected '$($Case.Module)'." }
+    $elsewhere = @($paths.Keys | Where-Object { $_ -like '*/widgets' -and $_ -cne $path })
+    if ($elsewhere) { throw "The endpoint is also mapped outside the module prefix: $($elsewhere -join ', ')" }
+
+    # The whole suite already passed before the fixture; running it again would add about a minute. What the fixture can
+    # break runs again: the contract, architecture and layout tests, the module's tests and the fixture tests themselves.
+    Write-Host "== Fixture $($Case.Fixture): build and test with the regenerated contract"
+    Invoke-Checked 'Building after the regeneration' { dotnet build $solution --configuration Release --nologo -warnaserror }
+    $moduleTests = Join-Path $Root "tests/$projectName.Modules.$($Case.Module).Tests/$projectName.Modules.$($Case.Module).Tests.csproj"
+    $affected = 'FullyQualifiedName~.Contract.|FullyQualifiedName~.Architecture.|FullyQualifiedName~.Layout.|FullyQualifiedName~.Fixtures.'
+    $ran = @()
+    foreach ($run in @(@{ Project = $moduleTests; Filter = $null }, @{ Project = $apiTests; Filter = $affected })) {
+        $filter = if ($run.Filter) { @('--filter', $run.Filter) } else { @() }
+        # Run in this scope, not through Invoke-Checked, so the captured lines stay readable here.
+        dotnet test $run.Project --configuration Release --no-build --nologo --logger 'console;verbosity=normal' @filter |
+            Tee-Object -Variable lines | Write-Host
+        if ($LASTEXITCODE -ne 0) { throw "Testing $(Split-Path -Leaf $run.Project) after the regeneration failed with exit code $LASTEXITCODE." }
+        $ran += @($lines | Where-Object { $_ -match '^\s*Passed\s+\S+\.Fixtures\.' })
+    }
+    # A fixture test outside a Fixtures namespace would be skipped by the filter and pass unseen.
+    if ($ran.Count -eq 0) { throw "No fixture test ran: fixture tests must be in a namespace ending in .Fixtures (see $testSource)." }
+    Write-Host "Fixture tests passed: $($ran.Count)."
+
+    Write-Host ("Fixture {0} added {1:N0} s." -f $Case.Fixture, $timer.Elapsed.TotalSeconds)
+}
+
 try {
     New-Item -ItemType Directory -Path $work | Out-Null
 
@@ -198,6 +305,7 @@ try {
     }
     $package = Get-ChildItem -LiteralPath $packages -Filter '*.nupkg' | Select-Object -First 1
     if (-not $package) { throw 'No package was produced.' }
+    Assert-PackageContent $package.FullName
 
     Write-Host '== Install'
     Invoke-Checked 'dotnet new install' { dotnet new install $package.FullName --debug:custom-hive $hive | Out-Null }
@@ -223,6 +331,7 @@ try {
             Write-Host "SDK: $(dotnet --version)"
             Invoke-Checked "Building $($case.Name)" { dotnet build $solution --configuration Release --nologo -warnaserror }
             Invoke-Checked "Testing $($case.Name)" { dotnet test $solution --configuration Release --no-build --nologo }
+            if ($case.Fixture) { Invoke-ModuleEndpointFixture $output $case }
         }
         finally {
             Pop-Location

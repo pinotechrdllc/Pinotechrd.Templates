@@ -104,7 +104,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Architecture tests for `modular`: a module sees only other modules' `Contracts`; layer rules inside a module; the Host composes exactly the modules on disk.
 - [ ] Architecture tests for `modular`: no cross-module table access (needs persistence, Phase 2).
 - [x] `modular`: every project that maps endpoints calls `AddValidation()` itself (the built-in validation only covers the project that calls it), with a test that an invalid body is rejected in each module.
-- [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
+- [x] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003. Result: with one module both have 13 projects and no measurable build-time difference; each further module adds six projects and four edits outside the module; `clean` stays the default, see [ADR 0003](docs/adr/0003-cost-of-modular-against-clean.md).
 - [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [x] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [x] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
