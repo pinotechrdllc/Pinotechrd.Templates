@@ -17,6 +17,26 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
+  <!-- Dependencies (see Dependencies in README.md). Every project writes a packages.lock.json on restore; commit
+       them. A CI build restores in locked mode: it fails (NU1004) instead of
+       resolving versions that differ from the committed lock files. -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
+  <!-- NuGet audit, stated even where it equals the .NET 10 default: every package, direct and transitive, is checked
+       against the advisory database at every severity. An advisory (NU1901-NU1904), or vulnerability data that could
+       not be read (NU1900, NU1905), fails a CI build; in a local build it stays a warning, so an advisory published
+       today, or working offline, does not stop unrelated work. -->
+  <PropertyGroup>
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <NuGetAuditCodes>NU1900;NU1901;NU1902;NU1903;NU1904;NU1905</NuGetAuditCodes>
+    <WarningsNotAsErrors Condition="'$(ContinuousIntegrationBuild)' != 'true'">$(WarningsNotAsErrors);$(NuGetAuditCodes)</WarningsNotAsErrors>
+  </PropertyGroup>
+
   <!-- The documentation file is generated everywhere because the unused-using rule (IDE0005) needs it at build. -->
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
