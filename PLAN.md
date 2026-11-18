@@ -83,7 +83,7 @@ How the bar is enforced:
 Short experiments that test decisions with no outside evidence. Each one ends with a written result in `docs/adr/`; a failed spike changes the decision before anything is built on it.
 
 - [x] Migrations per module and per tenant: three modules and fifty tenant schemas. Measure the time and confirm a migration history per module works inside a tenant schema (tables prefixed by module). Result: the design works, see [ADR 0001](docs/adr/0001-tenant-module-migrations.md).
-- [ ] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants.
+- [x] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants. Result: works with the envelope tables in one shared schema, see [ADR 0002](docs/adr/0002-wolverine-outbox-with-tenant-schemas.md).
 - [ ] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint.
 
 ## Phase 1. Backend core
@@ -126,7 +126,9 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 ## Phase 4. Messaging, cache and background work
 
-- [ ] Wolverine with the transactional outbox on PostgreSQL, no broker.
+- [ ] Wolverine with the transactional outbox on PostgreSQL, no broker: envelope tables in the shared `wolverine` schema, tenant carried as the Wolverine tenant id, version pinned (ADR 0002).
+- [ ] Handler DbContext built on the one shared data source with the `search_path` interceptor, not one data source per tenant. Must pass the outbox checks of ADR 0002 (atomicity, isolation, durability, retry).
+- [ ] Integration tests that keep those outbox checks in the generated project, because the DbContext builder relies on an internal Wolverine namespace.
 - [ ] Cache abstraction with tenant-aware keys, in-memory implementation.
 - [ ] Background jobs that are safe when more than one instance runs.
 - [ ] Phase review against the quality bar (messaging, data, resilience); findings added as tasks.
@@ -157,6 +159,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 - [ ] Redis as level 2 cache with invalidation between instances.
 - [ ] Wolverine with RabbitMQ.
+- [ ] Wolverine durability with several nodes (balanced mode) and a test that a handled message is marked in the same transaction as the handler's writes; neither was covered by the spike.
 - [ ] Permission cache invalidated across instances (needs the upstream change below).
 - [ ] Compose file with several API replicas and a test that runs against two instances.
 - [ ] Phase review against the quality bar (resilience, data, operability); findings added as tasks.
