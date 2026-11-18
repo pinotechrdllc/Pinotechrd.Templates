@@ -48,7 +48,6 @@ Thumbs.db
 .env
 .env.*
 appsettings.Local.json
-appsettings.Development.json
 appsettings.*.local.json
 *.pfx
 *.snk
