@@ -1,11 +1,11 @@
 using System.Net;
 using System.Reflection;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
+using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Host;
 
-public class VersionEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class VersionEndpointTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     [Fact]
     public async Task VersionAnswers200WithTheInformationalVersionOfTheApiAssembly()

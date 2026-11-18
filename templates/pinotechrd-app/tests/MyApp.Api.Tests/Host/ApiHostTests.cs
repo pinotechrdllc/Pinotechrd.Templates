@@ -1,9 +1,9 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
+using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Host;
 
-public class ApiHostTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class ApiHostTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     [Fact]
     public async Task UnknownRouteAnswers404()

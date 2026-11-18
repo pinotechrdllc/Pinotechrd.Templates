@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
+using MyApp.Api.Tests.Support;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,7 +9,7 @@ namespace MyApp.Api.Tests.Host;
 // Chosen approach: load the appsettings.json found in the host content root through the configuration
 // system and inspect the keys and values it yields. This checks the file the host really loads, without
 // the environment overlays (appsettings.Development.json, environment variables) that would blur the result.
-public partial class BaseSettingsTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public partial class BaseSettingsTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     private static readonly string[] SensitiveKeyFragments =
         ["connectionstring", "password", "pwd", "secret", "apikey", "privatekey", "accesskey", "token", "credential"];
