@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Pinotechrd",
+  "classifications": [ "Web", "API", "Vue", "Multi-tenant" ],
+  "identity": "Pinotechrd.App",
+  "name": "Pinotechrd application (API and Vue)",
+  "description": "A .NET API and a Vue frontend with security, multi-tenancy and i18n built in.",
+  "shortName": "pinotechrd-app",
+  "sourceName": "MyApp",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "solution"
+  },
+  "symbols": {
+    "architecture": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "How the business code is organized.",
+      "defaultValue": "clean",
+      "choices": [
+        { "choice": "clean", "description": "One bounded context with clean architecture layers." },
+        { "choice": "modular", "description": "Modular monolith with clean architecture inside each module." }
+      ]
+    },
+    "modules": {
+      "type": "parameter",
+      "datatype": "text",
+      "description": "Comma-separated names of the initial modules. Used only with --architecture modular.",
+      "defaultValue": ""
+    },
+    "profile": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "How the application runs.",
+      "defaultValue": "standalone",
+      "choices": [
+        { "choice": "standalone", "description": "One instance. Needs only PostgreSQL." },
+        { "choice": "distributed", "description": "Several instances. Adds Redis and RabbitMQ." }
+      ]
+    },
+    "deploy": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "Deployment files to include.",
+      "defaultValue": "compose",
+      "choices": [
+        { "choice": "compose", "description": "Docker Compose for a single host." },
+        { "choice": "kubernetes", "description": "Kubernetes manifests." }
+      ]
+    },
+    "iac": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "Infrastructure as code to include.",
+      "defaultValue": "none",
+      "choices": [
+        { "choice": "none", "description": "No infrastructure code." },
+        { "choice": "terraform", "description": "Terraform for the provider given by --cloud." }
+      ]
+    },
+    "cloud": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "Cloud provider for the infrastructure code. Used only with --iac terraform.",
+      "defaultValue": "none",
+      "choices": [
+        { "choice": "none", "description": "No cloud provider." },
+        { "choice": "gcp", "description": "Google Cloud." },
+        { "choice": "azure", "description": "Microsoft Azure." },
+        { "choice": "aws", "description": "Amazon Web Services." }
+      ]
+    }
+  }
+}
