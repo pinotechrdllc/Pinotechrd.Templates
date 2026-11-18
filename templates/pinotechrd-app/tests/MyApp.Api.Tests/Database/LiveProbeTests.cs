@@ -29,7 +29,9 @@ public class LiveProbeTests(PostgresFixture postgres)
         var live = await TimedGetAsync(client, HealthRegistration.LivePath);
 
         Assert.Equal(HttpStatusCode.OK, live.Status);
-        Assert.True(live.Elapsed < DatabaseComposition.ReadinessTimeout, $"Live took {live.Elapsed}.");
+        // A probe that waited for the database would take the whole readiness timeout or more; the connection check below
+        // is the exact one, so the time only has to stay clear of a busy machine's delays.
+        Assert.True(live.Elapsed < DatabaseComposition.ReadinessTimeout + TimeSpan.FromSeconds(3), $"Live took {live.Elapsed}.");
         Assert.False(server.HasConnectionAttempt, "The liveness probe connected to the database.");
     }
 

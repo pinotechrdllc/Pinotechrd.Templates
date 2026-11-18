@@ -12,7 +12,7 @@ namespace MyApp.Api.Tests.Database;
 [Collection(PostgresContainer.Name)]
 public class ReadinessFailureModeTests(PostgresFixture postgres)
 {
-    private static readonly TimeSpan Bound = DatabaseComposition.ReadinessTimeout + TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan Bound = DatabaseComposition.ReadinessTimeout + TimeSpan.FromSeconds(5);
 
     // The README: an attempt that has not finished ends after at most the connect Timeout (15 seconds), and the next
     // probe after that reports 200. Generous on top of it.

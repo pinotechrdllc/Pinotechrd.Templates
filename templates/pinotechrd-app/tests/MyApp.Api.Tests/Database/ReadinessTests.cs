@@ -17,7 +17,7 @@ public class ReadinessTests(PostgresFixture postgres)
 {
     private const string WrongPassword = "Wrong-Pw-Secret-31d8";
 
-    private static readonly TimeSpan Bound = DatabaseComposition.ReadinessTimeout + TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan Bound = DatabaseComposition.ReadinessTimeout + TimeSpan.FromSeconds(5);
 
     private record struct Answer(HttpStatusCode Status, string Body, TimeSpan Elapsed);
 

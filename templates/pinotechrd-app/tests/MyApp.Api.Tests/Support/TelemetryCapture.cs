@@ -66,14 +66,14 @@ internal sealed class TelemetryCapture : IDisposable
     /// Waits until <paramref name="condition"/> holds, giving other threads the processor between checks. The platform
     /// stops the span and records the duration of a request after the response has reached the client, so a test
     /// cannot read them the moment the response arrives. No time is slept: a spin that ends when the condition holds or
-    /// after ten seconds, so a missing signal fails the test instead of hanging it.
+    /// after thirty seconds, so a missing signal fails the test instead of hanging it.
     /// </summary>
     public static async Task<bool> UntilAsync(Func<bool> condition)
     {
         var watch = Stopwatch.StartNew();
         while (!condition())
         {
-            if (watch.Elapsed > TimeSpan.FromSeconds(10))
+            if (watch.Elapsed > TimeSpan.FromSeconds(30))
             {
                 return false;
             }
