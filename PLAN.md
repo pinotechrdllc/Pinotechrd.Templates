@@ -84,7 +84,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 - [x] Migrations per module and per tenant: three modules and fifty tenant schemas. Measure the time and confirm a migration history per module works inside a tenant schema (tables prefixed by module). Result: the design works, see [ADR 0001](docs/adr/0001-tenant-module-migrations.md).
 - [x] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants. Result: works with the envelope tables in one shared schema, see [ADR 0002](docs/adr/0002-wolverine-outbox-with-tenant-schemas.md).
-- [ ] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint.
+- [x] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint. Result: small build cost, `clean` stays the default, see [ADR 0003](docs/adr/0003-cost-of-modular-against-clean.md).
 
 ## Phase 1. Backend core
 
@@ -93,6 +93,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Building blocks shared by both architectures: domain base types, application pipeline, infrastructure plumbing.
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
 - [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
+- [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
 - [ ] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [ ] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [ ] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
