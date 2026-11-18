@@ -21,13 +21,45 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - Frontend: Vue 3.5, Vite, TypeScript strict, PrimeVue 4, Pinia, vue-i18n, zod, modules per feature.
 - Messaging and outbox with Wolverine. Level 2 cache with Redis in the `distributed` profile.
 - First cloud provider for Terraform: GCP. Azure and AWS come later behind the same `--cloud` option.
+- The generated project targets .NET 10, the LTS release and the one `Pinotechrd.Security` targets.
 - Every profile: access token in memory and refresh token in an `HttpOnly` cookie, refresh tokens stored in the database, migrations as a separate deploy step, background work safe for several instances.
 
 ## Decisions to confirm
 
-- [ ] .NET version of the generated project: .NET 10 (LTS, what `Pinotechrd.Security` targets) or .NET 11.
 - [ ] License of this repository and of the generated project (`MIT` is assumed, as in `Pinotechrd.Security`).
 - [ ] Whether the generated project includes PWA support by default or behind an option.
+
+## Quality bar
+
+The template must carry the best code we can justify, not the code we happen to have. Each rule below names the source it comes from. A design choice that departs from its source is recorded in an ADR that says why.
+
+| Area | Rule the template follows | Source |
+| --- | --- | --- |
+| Architecture | Dependencies point inward; the domain knows nothing about frameworks or the database. | R. C. Martin, *Clean Architecture*; A. Cockburn, "Hexagonal Architecture" |
+| Domain model | Entities protect their own invariants; no public setters, no anemic model. | E. Evans, *Domain-Driven Design*; V. Vernon, *Implementing Domain-Driven Design* |
+| Module design | Deep modules with small interfaces; complexity is hidden, not spread. | J. Ousterhout, *A Philosophy of Software Design* |
+| Code hygiene | Small functions, intention-revealing names, refactor before adding. | M. Fowler, *Refactoring*; R. C. Martin, *Clean Code* |
+| HTTP API | Standard status codes, conditional requests with ETag, errors as problem details. | RFC 9110; RFC 9457 |
+| Tokens | Short-lived access tokens, rotated refresh tokens, no tokens in browser storage. | RFC 9700 (OAuth 2.0 Security BCP); RFC 8725 (JWT BCP); IETF "OAuth 2.0 for Browser-Based Applications" |
+| Application security | Every control maps to a verification requirement; deny by default. | OWASP ASVS; OWASP Top 10; OWASP Cheat Sheet Series |
+| Multi-tenancy | Tenant identity comes only from a verified token; isolation is tested, not assumed. | Microsoft Azure Architecture Center, multitenancy guidance; AWS Well-Architected SaaS Lens |
+| Messaging | State change and message are committed together (transactional outbox); handlers are idempotent. | G. Hohpe and B. Woolf, *Enterprise Integration Patterns*; C. Richardson, *Microservices Patterns* |
+| Data and consistency | Explicit choices on concurrency, retries and idempotency. | M. Kleppmann, *Designing Data-Intensive Applications* |
+| Resilience | Timeouts on every outbound call, circuit breakers, bulkheads, bounded queues. | M. Nygard, *Release It!* |
+| Operability | Configuration in the environment, stateless processes, logs as event streams. | *The Twelve-Factor App*; Google, *Site Reliability Engineering* |
+| Observability | Traces, metrics and logs with standard names. | OpenTelemetry semantic conventions |
+| Testing | Tests verify behavior through public interfaces; integration tests use the real database; mocks only at system boundaries. | V. Khorikov, *Unit Testing Principles, Practices, and Patterns*; S. Freeman and N. Pryce, *Growing Object-Oriented Software, Guided by Tests* |
+| Delivery | Small changes, trunk kept releasable, every change through the same automated gate. | N. Forsgren, J. Humble and G. Kim, *Accelerate* |
+| Supply chain | Pinned actions, dependency review, provenance for published packages. | SLSA; OpenSSF Scorecard |
+| Frontend structure | Views are containers, components are presentational; composition over inheritance. | Vue.js Style Guide; B. Frost, *Atomic Design* |
+| Accessibility | Every screen passes automated checks and keyboard navigation. | WCAG 2.2 |
+| .NET conventions | Naming, nullability and API shape follow the platform guidelines. | K. Cwalina et al., *Framework Design Guidelines*; Microsoft .NET and ASP.NET Core documentation |
+
+How the bar is enforced:
+
+- Each pull request states which rule it implements and gets an independent review before merge.
+- Rules that can be checked by a machine are checked by one: analyzers, architecture tests, contract tests, lint, accessibility tests.
+- Each phase ends with a review of its code against the rules of its area; findings become tasks in this plan.
 
 ## Phase 0. Repository foundation
 
@@ -47,6 +79,7 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`.
 - [ ] Logging and telemetry: Serilog and OpenTelemetry.
 - [ ] Integration test fixture with Testcontainers for PostgreSQL.
+- [ ] Phase review against the quality bar (architecture, API, operability); findings added as tasks.
 
 ## Phase 2. Security and tenancy
 
@@ -60,6 +93,7 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] Tenants endpoints: create, activate, suspend.
 - [ ] Seeding: first tenant and bootstrap administrator from configuration.
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.
+- [ ] Phase review against the quality bar (tokens, application security, multi-tenancy); findings added as tasks.
 
 ## Phase 3. i18n in the core
 
@@ -68,16 +102,19 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] Localized error and validation messages.
 - [ ] Email abstraction with templates in both languages.
 - [ ] Test: both languages have the same keys.
+- [ ] Phase review against the quality bar (code hygiene, testing); findings added as tasks.
 
 ## Phase 4. Messaging, cache and background work
 
 - [ ] Wolverine with the transactional outbox on PostgreSQL, no broker.
 - [ ] Cache abstraction with tenant-aware keys, in-memory implementation.
 - [ ] Background jobs that are safe when more than one instance runs.
+- [ ] Phase review against the quality bar (messaging, data, resilience); findings added as tasks.
 
 ## Phase 5. Sample feature in the API
 
 - [ ] `Sample` CRUD: paging, validation, optimistic concurrency, a published event, permissions, tests. It is the model to copy for new features.
+- [ ] Phase review against the quality bar (domain model, testing); findings added as tasks.
 
 ## Phase 6. Frontend
 
@@ -93,6 +130,7 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] `tenants` and `settings` modules.
 - [ ] `sample` module that matches the API sample.
 - [ ] End-to-end tests with Playwright, including accessibility checks.
+- [ ] Phase review against the quality bar (frontend structure, accessibility); findings added as tasks.
 
 ## Phase 7. Distributed profile
 
@@ -100,6 +138,7 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] Wolverine with RabbitMQ.
 - [ ] Permission cache invalidated across instances (needs the upstream change below).
 - [ ] Compose file with several API replicas and a test that runs against two instances.
+- [ ] Phase review against the quality bar (resilience, data, operability); findings added as tasks.
 
 ## Phase 8. Delivery
 
@@ -109,6 +148,7 @@ Defaults: `standalone`, `compose`, no Terraform, no cloud.
 - [ ] `scripts/verify.ps1`, the same gate CI runs.
 - [ ] Kubernetes manifests: deployments, probes, autoscaling, migrator job.
 - [ ] Terraform for GCP: network, GKE, Cloud SQL, Memorystore, Artifact Registry, Secret Manager.
+- [ ] Phase review against the quality bar (delivery, supply chain); findings added as tasks.
 
 ## Phase 9. Template productization
 
