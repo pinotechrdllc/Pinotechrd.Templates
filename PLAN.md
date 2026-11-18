@@ -95,11 +95,11 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton).
 - [ ] `--architecture modular` must not silently generate the `clean` skeleton: select content by architecture in `template.json` (review of the skeleton).
 - [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
-- [ ] Building blocks, part 2: the web building block (with the API host task below).
+- [x] Building blocks, part 2: the web building block (with the API host task below).
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
 - [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
 - [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
-- [ ] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
+- [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [ ] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [ ] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
 - [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`.

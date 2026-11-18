@@ -45,6 +45,37 @@ public class LayerDependencyTests
     }
 
     [Fact]
+    public void WebBuildingBlocksReferenceOnlyTheApplicationAndDomainBuildingBlocksAmongSolutionAssemblies()
+    {
+        ReferenceRules.AssertNone(ReferenceRules.Violations(
+            ReferenceRules.BuildingBlocksWeb,
+            AllExcept(
+                ReferenceRules.BuildingBlocksWeb,
+                ReferenceRules.BuildingBlocksApplication,
+                ReferenceRules.BuildingBlocksDomain),
+            []));
+    }
+
+    [Fact]
+    public void WebBuildingBlocksActuallyUseAspNetCore()
+    {
+        // Guards the rules above against being vacuous: the checker sees ASP.NET Core references of this assembly.
+        Assert.Contains(
+            ReferenceRules.ReferencedNames(ReferenceRules.BuildingBlocksWeb),
+            n => ReferenceRules.HasPrefix(n, "Microsoft.AspNetCore"));
+    }
+
+    [Fact]
+    public void OnlyTheApiReferencesTheWebBuildingBlocks()
+    {
+        var violations = AllExcept(ReferenceRules.Api, ReferenceRules.BuildingBlocksWeb)
+            .SelectMany(a => ReferenceRules.Violations(a, [ReferenceRules.BuildingBlocksWeb], []))
+            .ToList();
+
+        ReferenceRules.AssertNone(violations);
+    }
+
+    [Fact]
     public void NoBuildingBlockReferencesABusinessAssembly()
     {
         var violations = ReferenceRules.BuildingBlocks
@@ -102,6 +133,7 @@ public class LayerDependencyTests
             ("Contracts", typeof(MyApp.Contracts.ContractsAssembly)),
             ("Resources", typeof(MyApp.Resources.ResourcesAssembly)),
             ("Infrastructure", typeof(MyApp.Infrastructure.InfrastructureAssembly)),
+            ("BuildingBlocks.Web", typeof(MyApp.BuildingBlocks.Web.BuildingBlocksWebAssembly)),
             ("Api", typeof(MyApp.Api.ApiAssembly)),
         };
 
@@ -113,7 +145,7 @@ public class LayerDependencyTests
                 $"Marker '{marker.Name}' lives in assembly '{name}', expected an assembly ending in '.{layer}'.");
         }
 
-        Assert.Equal(8, markers.Select(m => m.Marker.Assembly).Distinct().Count());
+        Assert.Equal(9, markers.Select(m => m.Marker.Assembly).Distinct().Count());
     }
 
     [Fact]
