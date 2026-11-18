@@ -26,8 +26,10 @@ namespace MyApp.BuildingBlocks.Infrastructure.Database;
 /// pooling on, <c>Minimum Pool Size</c> 0, <c>Connection Idle Lifetime</c> 300 seconds, <c>Timeout</c> (to connect)
 /// 15 seconds, <c>Cancellation Timeout</c> 2000 milliseconds. Npgsql writes no log events
 /// (no logger factory is given to it: its debug events name the host, the database and the commands); its traces and
-/// metrics are published under <see cref="TelemetryName"/>, without parameter values and without physical connection
-/// opens.
+/// metrics are published under <see cref="TelemetryName"/>, without parameter values, without physical connection
+/// opens, and without the readiness probe's query or the statement that binds a connection to a tenant (both recognized
+/// by their command type, never by their text). A connection string that sets a value <see cref="ConnectionSafety"/>
+/// refuses (<c>Multiplexing</c>, <c>No Reset On Close</c>, a search path) stops the host when it starts.
 /// </para>
 /// </summary>
 public static class DatabaseRegistration
@@ -115,7 +117,8 @@ public static class DatabaseRegistration
         // The pool name in metrics and spans; otherwise it is the connection string, with the host and the user name.
         builder.Name = applicationName;
         builder.ConfigureTracing(tracing => tracing
-            .ConfigureCommandFilter(command => !DatabaseHealthCheck.IsProbeCommand(command))
+            .ConfigureCommandFilter(command =>
+                !DatabaseHealthCheck.IsProbeCommand(command) && !Tenancy.TenantConnectionGuard.IsBindingCommand(command))
             .EnablePhysicalOpenTracing(false));
         return builder.Build();
     }
