@@ -42,6 +42,18 @@ public partial class SolutionLayoutTests
         Assert.True(missing.Count == 0, string.Join(Environment.NewLine, missing));
     }
 
+    // Breaks when a project is added to the solution (a module's, for example) and the README table never mentions it.
+    [Fact]
+    public void ReadmeLayoutTableCoversEveryProjectOnDisk()
+    {
+        var root = SolutionLocator.SolutionRoot();
+        var named = ReadmeLayoutPaths(File.ReadAllText(Path.Combine(root, "README.md")));
+
+        var problems = Uncovered(ProjectsOnDisk(root), named);
+
+        Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
+    }
+
     [Fact]
     public void ReadmeLayoutTableNamesTheHostAndTheTestProject()
     {
@@ -55,6 +67,28 @@ public partial class SolutionLayoutTests
     }
 
     // Self-tests of the comparison on synthetic cases: they prove that each side of the rule can fail.
+
+    [Fact]
+    public void CoverageAcceptsAProjectNamedByItsOwnRowOrByTheRowOfAFolderAboveIt()
+    {
+        var problems = Uncovered(
+            ["src/A/A.csproj", "src/BuildingBlocks/B/B.csproj", "src/Modules/M/A.Modules.M.Domain/A.Modules.M.Domain.csproj"],
+            ["src/A", "src/BuildingBlocks", "src/Modules/M/A.Modules.M.Domain"]);
+
+        Assert.Empty(problems);
+    }
+
+    [Fact]
+    public void CoverageReportsAProjectThatNoRowNames()
+    {
+        var problems = Uncovered(
+            ["src/A/A.csproj", "src/Modules/M/A.Modules.M.Domain/A.Modules.M.Domain.csproj", "src/AB/AB.csproj"],
+            ["src/A", "src/Modules/M/A.Modules.M.Contracts"]);
+
+        Assert.Equal(2, problems.Count);
+        Assert.Contains(problems, p => p.Contains("src/Modules/M/A.Modules.M.Domain", StringComparison.Ordinal));
+        Assert.Contains(problems, p => p.Contains("src/AB", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void ComparisonReportsAProjectListedInTheSolutionButMissingOnDisk()
@@ -158,6 +192,19 @@ public partial class SolutionLayoutTests
                 .Select(p => $"The solution lists '{p}', which does not exist."),
             .. diskSet.Where(p => !listedSet.Contains(p)).Order(StringComparer.Ordinal)
                 .Select(p => $"'{p}' exists under src/ or tests/ but the solution does not list it."),
+        ];
+    }
+
+    // A project is covered by a row that names its folder or a folder above it (the building blocks have one row).
+    private static IReadOnlyList<string> Uncovered(IEnumerable<string> projects, IEnumerable<string> named)
+    {
+        var rows = named.Select(Normalize).ToList();
+        return
+        [
+            .. projects
+                .Select(p => Normalize(p)[..Normalize(p).LastIndexOf('/')])
+                .Where(folder => !rows.Exists(row => folder == row || folder.StartsWith(row + "/", StringComparison.Ordinal)))
+                .Select(folder => $"The README layout table does not name '{folder}'."),
         ];
     }
 

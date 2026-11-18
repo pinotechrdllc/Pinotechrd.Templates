@@ -8,11 +8,25 @@ MyApp is a .NET 10 API organized as a modular monolith: one host composes the bu
 | Project | Responsibility |
 | --- | --- |
 | `src/MyApp.Api` | The host: HTTP pipeline, health probes, host endpoints and the composition of the modules. |
-| `src/BuildingBlocks/` | Base code shared by every module: domain types (`Domain`), handler registration (`Application`), the database connection (`Infrastructure`) and the HTTP plumbing (`Web`). They reference no module. |
+| `src/Modules/MyModule/MyApp.Modules.MyModule.Contracts` | The public face of the module, the only project another module may reference: interfaces, records and enums only, plus the assembly marker `MyModuleContractsAssembly`. No references to other projects. |
+| `src/Modules/MyModule/MyApp.Modules.MyModule.Domain` | The module's entities, value objects and business rules. Depends on the domain building block only. |
+| `src/Modules/MyModule/MyApp.Modules.MyModule.Application` | The module's use cases (`*Handler` classes). Depends on its Domain and Contracts and the application building block. |
+| `src/Modules/MyModule/MyApp.Modules.MyModule.Infrastructure` | The module's persistence and other external systems. Depends on its Application and the infrastructure building block. |
+| `src/Modules/MyModule/MyApp.Modules.MyModule.Endpoints` | The module's HTTP endpoints, with their request and response types, and `MyModuleModule`, the module's composition root. |
+| `src/BuildingBlocks/` | Base code shared by every module: domain types (`Domain`), handler registration (`Application`), the database connection (`Infrastructure`) and the HTTP plumbing and module contract (`Web`). They reference no module. |
+| `tests/MyApp.Modules.MyModule.Tests` | Tests of the module. |
 | `tests/MyApp.BuildingBlocks.Tests` | Unit tests for the building blocks. |
 | `tests/MyApp.Api.Tests` | Integration tests that host the API in memory, and the architecture rules. |
 
-Modules live under `src/Modules/`.
+## Modules
+
+Each module is a bounded context under `src/Modules/{Name}/`, with the five projects above. The module name is a PascalCase C# identifier of ASCII letters and digits (a name such as `Ñandú` is rejected at startup); the template creates one module (`--module`, `Core` by default), and a later version of the template adds a script to create more.
+
+- Composition. A module is one class that implements `IModule` (from the web building block) in its Endpoints project: `MyModuleModule`. Its `AddServices` registers the services of every project of the module (the handlers of its Application with `AddHandlers`, later its persistence). The host lists each module once, in `src/MyApp.Api/BusinessComposition.Modular.cs`, with `builder.AddModule<MyModuleModule>()`; a module added twice is registered and mapped once. `AddServices` receives a `ModuleContext` with the host's `Services`, `Configuration` and `Environment`; it runs at startup and during the build-time contract generation, so it must not need a configuration value or a database to run.
+- Endpoints. An endpoint of the module is a public class that implements `IEndpoint` in its Endpoints project, one per use case, with its request and response types next to it. It is found by scanning that project and mapped under `/api/v1/{module}`, where `{module}` is the module name in kebab case (`Sales` gives `/api/v1/sales`, `SalesOrders` `/api/v1/sales-orders`, `HRPayroll` `/api/v1/hr-payroll`), and tagged with the module name (an endpoint that calls `WithTags` replaces that tag with its own). Routes are written relative to that prefix: `routes.MapPost("/orders", ...)` serves `/api/v1/sales/orders`. Host endpoints come first in the API contract, then the modules by name, each one's endpoints in the order of their full type names. A module whose route segment is also the first segment of a host endpoint's route (a module `Version` next to `GET /api/v1/version`) stops the application at startup with an error naming the module.
+- Validation. `MyModuleModule.AddServices` calls `AddValidation()` and must keep doing so: the built-in validation is generated only for the endpoints mapped in the project that makes the call, so without it the module's request bodies are not validated (see [Errors](#errors)). A project has exactly one `AddValidation()` call site: a second one in the same project fails the build (CS8785).
+- Contracts. A module's Contracts project holds only interfaces, records and enums: what other modules may call or receive. The only other type allowed is its assembly marker, `MyModuleContractsAssembly`. HTTP request and response types are not contracts; they live with their endpoint.
+- Boundaries. The Application, Infrastructure and Endpoints projects of a module may reference another module's Contracts project and nothing else of it; its Domain and Contracts projects reference no other module at all. Each module owns its own tables; no module reads another module's data.
 <!--#else -->
 MyApp is a .NET 10 API organized in clean architecture layers: dependencies point inward, so the domain knows nothing about frameworks or the database. It was generated from the `pinotechrd-app` template.
 

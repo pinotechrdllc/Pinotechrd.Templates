@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\MyApp.Modules.MyModule.Application\MyApp.Modules.MyModule.Application.csproj" />
+  </ItemGroup>
+
+</Project>

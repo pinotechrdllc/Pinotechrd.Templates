@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The module's endpoints and its composition root (MyModuleModule): the only project of the module the host references. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- Referenced directly, not only through the web building block, so the built-in validation generator runs here. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\MyApp.BuildingBlocks.Web\MyApp.BuildingBlocks.Web.csproj" />
+    <ProjectReference Include="..\MyApp.Modules.MyModule.Application\MyApp.Modules.MyModule.Application.csproj" />
+    <ProjectReference Include="..\MyApp.Modules.MyModule.Infrastructure\MyApp.Modules.MyModule.Infrastructure.csproj" />
+    <ProjectReference Include="..\MyApp.Modules.MyModule.Contracts\MyApp.Modules.MyModule.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

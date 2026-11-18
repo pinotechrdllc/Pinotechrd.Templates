@@ -6,6 +6,8 @@
 
   <ItemGroup>
 <!--#if (modular) -->
+    <!-- Each module's endpoints project is its composition root; the host references nothing else of a module. -->
+    <ProjectReference Include="..\Modules\MyModule\MyApp.Modules.MyModule.Endpoints\MyApp.Modules.MyModule.Endpoints.csproj" />
 <!--#else -->
     <ProjectReference Include="..\MyApp.Application\MyApp.Application.csproj" />
     <ProjectReference Include="..\MyApp.Infrastructure\MyApp.Infrastructure.csproj" />
