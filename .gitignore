@@ -58,7 +58,7 @@ secrets.json
 .atl/
 
 ## [VS Code Workspace]
-Pinotechrd.Security.code-workspace
+*.code-workspace
 
 ## [Build and packaging outputs]
 artifacts/
