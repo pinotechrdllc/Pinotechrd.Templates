@@ -1,17 +1,66 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
+using MyApp.BuildingBlocks.Web;
 
 namespace MyApp.Api.Tests.Support;
 
 /// <summary>Rules that every OpenAPI document of the API must satisfy, shared by the file and the served documents.</summary>
-internal static class OpenApiDocumentRules
+internal static partial class OpenApiDocumentRules
 {
     private static readonly string[] BodyStatuses = ["408", "413", "415"];
 
     /// <summary>
-    /// Every operation declares 500 as problem+json; it declares 400 if and only if it has input (parameters or a
-    /// body), and 408, 413 and 415 if and only if it has a request body.
+    /// What the endpoints of a host imply for their documented operations, keyed by <c>METHOD path</c> as the document
+    /// writes it: the operations that require authorization (and so declare 401 and 403) and those that opted out of
+    /// rate limiting (and so do not declare 429).
     /// </summary>
-    public static void AssertCommonProblemResponses(JsonObject document)
+    public sealed record EndpointExpectations(IReadOnlySet<string> Secured, IReadOnlySet<string> Unlimited);
+
+    /// <summary>Reads the authorization and rate limiting metadata of the endpoints registered in the host.</summary>
+    public static EndpointExpectations ExpectationsOf(IServiceProvider services)
+    {
+        var secured = new HashSet<string>(StringComparer.Ordinal);
+        var unlimited = new HashSet<string>(StringComparer.Ordinal);
+        var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
+        foreach (var endpoint in endpoints)
+        {
+            var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
+            var path = RouteParameter().Replace(endpoint.RoutePattern.RawText ?? string.Empty, "{$1}");
+            var requiresAuthorization = endpoint.Metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy)
+                && !endpoint.Metadata.OfType<IAllowAnonymous>().Any();
+            var disabled = endpoint.Metadata.OfType<DisableRateLimitingAttribute>().Any();
+            foreach (var method in methods)
+            {
+                var key = $"{method.ToUpperInvariant()} {path}";
+                if (requiresAuthorization)
+                {
+                    secured.Add(key);
+                }
+
+                if (disabled)
+                {
+                    unlimited.Add(key);
+                }
+            }
+        }
+
+        return new EndpointExpectations(secured, unlimited);
+    }
+
+    [GeneratedRegex(@"\{([^}:?*]+)[^}]*\}")]
+    private static partial Regex RouteParameter();
+
+    /// <summary>
+    /// Every operation declares 500 as problem+json, and every operation under the API prefix also 429 (rate limited)
+    /// unless the endpoint opted out of rate limiting; 401 and 403 if and only if the endpoint requires authorization
+    /// (both read from <paramref name="expectations"/>); 400 if and only if it has input (parameters or a body), and
+    /// 408, 413 and 415 if and only if it has a request body.
+    /// </summary>
+    public static void AssertCommonProblemResponses(JsonObject document, EndpointExpectations expectations)
     {
         var operations = OpenApiContract.Operations(document);
         Assert.NotEmpty(operations);
@@ -24,6 +73,18 @@ internal static class OpenApiDocumentRules
             var hasInput = hasBody || OpenApiContract.HasParameters(document, path, operation);
 
             Expect("500", true);
+            var key = $"{method.ToUpperInvariant()} {path}";
+            Expect("401", expectations.Secured.Contains(key));
+            Expect("403", expectations.Secured.Contains(key));
+            if (expectations.Unlimited.Contains(key))
+            {
+                Expect("429", false);
+            }
+            else if (path.StartsWith(EndpointRegistration.RoutePrefix, StringComparison.Ordinal))
+            {
+                Expect("429", true);
+            }
+
             Expect("400", hasInput);
             foreach (var status in BodyStatuses)
             {

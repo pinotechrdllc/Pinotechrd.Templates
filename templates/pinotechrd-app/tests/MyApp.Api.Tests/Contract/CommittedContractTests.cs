@@ -88,7 +88,8 @@ public partial class CommittedContractTests
     [Fact]
     public void EveryOperationDeclaresTheCommonProblemResponses()
     {
-        OpenApiDocumentRules.AssertCommonProblemResponses(OpenApiContract.ReadCommitted());
+        using var factory = new ApiHostFactory();
+        OpenApiDocumentRules.AssertCommonProblemResponses(OpenApiContract.ReadCommitted(), OpenApiDocumentRules.ExpectationsOf(factory.Services));
     }
 
     // Breaks when the file is written with CRLF (a Windows regeneration without normalising line endings).

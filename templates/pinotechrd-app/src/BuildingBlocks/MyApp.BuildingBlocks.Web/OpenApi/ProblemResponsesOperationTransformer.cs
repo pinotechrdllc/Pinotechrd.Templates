@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.OpenApi;
 
@@ -9,14 +11,19 @@ namespace MyApp.BuildingBlocks.Web.OpenApi;
 /// <summary>
 /// Adds to each operation the problem details responses that the pipeline can return for it: 500 (a defect) always;
 /// 400 (a malformed request or a validation failure) when it takes parameters or a body; 408, 413 and 415 (a body
-/// sent too slowly, too large, or of another content type) when it takes a body. Unknown routes and wrong methods are
-/// not operations, so they are not listed. An endpoint declares the others it returns (404, 409, 422) with
+/// sent too slowly, too large, or of another content type) when it takes a body; 429 (rate limited, with a
+/// <c>Retry-After</c> header) unless the endpoint is marked with <c>DisableRateLimiting()</c>; 401 and 403 when the
+/// endpoint requires authorization (<c>RequireAuthorization()</c> or <c>[Authorize]</c>, without
+/// <c>AllowAnonymous()</c>). A fallback authorization policy is not endpoint metadata, so it does not add them. Unknown routes and wrong
+/// methods are not operations, so they are not listed. An endpoint declares the others it returns (404, 409, 422) with
 /// <c>ProducesProblem</c>, and a response it declares is kept. Responses are ordered by status, so the document does
 /// not depend on the order in which they were added.
 /// </summary>
 internal sealed class ProblemResponsesOperationTransformer : IOpenApiOperationTransformer
 {
     private const string ProblemJsonContentType = "application/problem+json";
+
+    private const string RetryAfterHeader = "Retry-After";
 
     private static readonly int[] BodyStatuses =
     [
@@ -43,6 +50,28 @@ internal sealed class ProblemResponsesOperationTransformer : IOpenApiOperationTr
             }
         }
 
+        if (RequiresAuthorization(context))
+        {
+            await AddAsync(responses, StatusCodes.Status401Unauthorized, typeof(ProblemDetails), context, cancellationToken).ConfigureAwait(false);
+            await AddAsync(responses, StatusCodes.Status403Forbidden, typeof(ProblemDetails), context, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (IsRateLimited(context))
+        {
+            await AddAsync(responses, StatusCodes.Status429TooManyRequests, typeof(ProblemDetails), context, cancellationToken).ConfigureAwait(false);
+            if (responses[StatusKey(StatusCodes.Status429TooManyRequests)] is OpenApiResponse tooMany && tooMany.Headers is null)
+            {
+                tooMany.Headers = new Dictionary<string, IOpenApiHeader>(StringComparer.Ordinal)
+                {
+                    [RetryAfterHeader] = new OpenApiHeader
+                    {
+                        Description = "The number of seconds to wait before sending another request.",
+                        Schema = new OpenApiSchema { Type = JsonSchemaType.Integer, Format = "int32" },
+                    },
+                };
+            }
+        }
+
         await AddAsync(responses, StatusCodes.Status500InternalServerError, typeof(ProblemDetails), context, cancellationToken).ConfigureAwait(false);
 
         var ordered = responses.OrderBy(r => r.Key, StringComparer.Ordinal).ToArray();
@@ -53,6 +82,17 @@ internal sealed class ProblemResponsesOperationTransformer : IOpenApiOperationTr
         }
     }
 
+    private static bool RequiresAuthorization(OpenApiOperationTransformerContext context)
+    {
+        var metadata = context.Description.ActionDescriptor.EndpointMetadata;
+        return metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy) && !metadata.OfType<IAllowAnonymous>().Any();
+    }
+
+    private static bool IsRateLimited(OpenApiOperationTransformerContext context) =>
+        !context.Description.ActionDescriptor.EndpointMetadata.OfType<DisableRateLimitingAttribute>().Any();
+
+    private static string StatusKey(int status) => status.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     private static async Task AddAsync(
         OpenApiResponses responses,
         int status,
@@ -60,7 +100,7 @@ internal sealed class ProblemResponsesOperationTransformer : IOpenApiOperationTr
         OpenApiOperationTransformerContext context,
         CancellationToken cancellationToken)
     {
-        var key = status.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var key = StatusKey(status);
         if (responses.ContainsKey(key))
         {
             return;

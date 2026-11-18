@@ -29,6 +29,26 @@ internal sealed class ProblemFixtureEndpoint : IEndpoint
 
     public const string Base = EndpointRegistration.RoutePrefix + "/problem-fixtures";
 
+    /// <summary>Sets its own <c>Cache-Control</c>, which the pipeline must keep.</summary>
+    public const string Cached = Base + "/cached";
+
+    public const string CachedControl = "public, max-age=60";
+
+    /// <summary>Already varies by <c>Origin</c>, so the pipeline must not add a second value.</summary>
+    public const string VariesByOrigin = Base + "/varies-by-origin";
+
+    /// <summary>Varies by another header, to which the pipeline adds <c>Origin</c>.</summary>
+    public const string VariesByEncoding = Base + "/varies-by-encoding";
+
+    /// <summary>Marked with <c>DisableRateLimiting()</c>.</summary>
+    public const string Unlimited = Base + "/unlimited";
+
+    /// <summary>Requires authorization; only meaningful in a host that registers authentication.</summary>
+    public const string Secured = Base + "/secured";
+
+    /// <summary>Requires the <c>admin</c> role; only meaningful in a host that registers authentication.</summary>
+    public const string AdminOnly = Base + "/admin-only";
+
     public static string CodeOf(ErrorKind kind) => "fixture_" + kind.ToString().ToLowerInvariant();
 
     public static string MessageOf(ErrorKind kind) => $"The fixture returned a {kind} error.";
@@ -43,6 +63,24 @@ internal sealed class ProblemFixtureEndpoint : IEndpoint
     {
         var group = routes.MapGroup("/problem-fixtures");
         group.MapGet("/throw", Throw);
+        group.MapGet("/cached", (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = CachedControl;
+            return Results.Ok();
+        });
+        group.MapGet("/varies-by-origin", (HttpContext context) =>
+        {
+            context.Response.Headers.Vary = "Origin";
+            return Results.Ok();
+        });
+        group.MapGet("/varies-by-encoding", (HttpContext context) =>
+        {
+            context.Response.Headers.Vary = "Accept-Encoding";
+            return Results.Ok();
+        });
+        group.MapGet("/unlimited", () => Results.Ok()).DisableRateLimiting();
+        group.MapGet("/secured", () => Results.Ok()).RequireAuthorization();
+        group.MapGet("/admin-only", () => Results.Ok()).RequireAuthorization(policy => policy.RequireRole("admin"));
         group.MapPost("/items", (FixtureItem item) => Results.Ok(item));
         group.MapGet("/count", (int count) => Results.Ok(count));
         group.MapPost("/profiles", (FixtureProfile profile) => Results.Ok(profile));

@@ -30,7 +30,10 @@ public static class HealthRegistration
 
     /// <summary>
     /// Maps <see cref="LivePath"/> and <see cref="ReadyPath"/>, outside the versioned API group and excluded from the
-    /// API description. The readiness probe answers 503 when a check tagged <see cref="ReadyTag"/> is unhealthy.
+    /// API description and from rate limiting, so an orchestrator polling them never gets a 429 and never takes
+    /// a client's requests from its limit. Both allow anonymous access, so a fallback authorization policy never makes
+    /// them answer 401 to the orchestrator. The readiness probe answers 503 when a check tagged
+    /// <see cref="ReadyTag"/> is unhealthy.
     /// </summary>
     /// <param name="routes">The application route builder.</param>
     /// <returns>The same route builder, for chaining.</returns>
@@ -39,9 +42,13 @@ public static class HealthRegistration
         ArgumentNullException.ThrowIfNull(routes);
 
         routes.MapHealthChecks(LivePath, new HealthCheckOptions { Predicate = _ => false })
-            .ExcludeFromDescription();
+            .ExcludeFromDescription()
+            .DisableRateLimiting()
+            .AllowAnonymous();
         routes.MapHealthChecks(ReadyPath, new HealthCheckOptions { Predicate = c => c.Tags.Contains(ReadyTag) })
-            .ExcludeFromDescription();
+            .ExcludeFromDescription()
+            .DisableRateLimiting()
+            .AllowAnonymous();
 
         return routes;
     }

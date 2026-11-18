@@ -54,7 +54,8 @@ internal static class PipelineProblems
     }
 
     /// <summary>
-    /// Returns the code of a status produced without an <see cref="Error"/>. A 500 is a defect
+    /// Returns the code of a status produced without an <see cref="Error"/>. A 429 is a rate limit rejection
+    /// (<see cref="HttpErrorCodes.RateLimited"/>); a 500 is a defect
     /// (<see cref="CommonErrorCodes.InternalError"/>); a status with no specific code gets
     /// <see cref="HttpErrorCodes.RequestFailed"/>.
     /// </summary>
@@ -69,6 +70,7 @@ internal static class PipelineProblems
         StatusCodes.Status409Conflict => CommonErrorCodes.Conflict,
         StatusCodes.Status413PayloadTooLarge => HttpErrorCodes.PayloadTooLarge,
         StatusCodes.Status415UnsupportedMediaType => HttpErrorCodes.UnsupportedMediaType,
+        StatusCodes.Status429TooManyRequests => HttpErrorCodes.RateLimited,
         StatusCodes.Status500InternalServerError => CommonErrorCodes.InternalError,
         _ => HttpErrorCodes.RequestFailed,
     };
