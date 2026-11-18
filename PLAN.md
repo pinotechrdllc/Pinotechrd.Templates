@@ -102,7 +102,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
 - [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [x] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
-- [ ] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
+- [x] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
 - [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`. CORS runs before the error handling middleware, and `rate_limited` (429) joins the code catalogue.
 - [ ] Logging and telemetry: Serilog and OpenTelemetry.
 - [ ] Integration test fixture with Testcontainers for PostgreSQL.

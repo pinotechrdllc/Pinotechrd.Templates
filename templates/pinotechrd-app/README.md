@@ -34,9 +34,12 @@ public sealed class GetVersionEndpoint : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder routes) =>
         routes.MapGet("/version", () => TypedResults.Ok(new VersionResponse(version)))
             .WithName("GetVersion")
+            .WithTags("System")
             .WithSummary("Gets the informational version of the running application.");
 }
 ```
+
+Each endpoint sets a unique name with `WithName` (it becomes the `operationId` of the API contract) and a tag for its feature with `WithTags`, so no operation falls back to the assembly name as its tag.
 
 Health probes live outside the API group: `/health/live` and `/health/ready` (checks tagged `HealthRegistration.ReadyTag`).
 
@@ -71,3 +74,17 @@ The keys of `errors` name the fields as they appear in the request JSON: each se
 Request types are validated with DataAnnotations by the built-in minimal API validation (`AddValidation()`). It is generated at compile time for the request types of the endpoints mapped in the project that calls `AddValidation()`, wherever those types are declared (`MyApp.Contracts` included). A separate project that maps its own endpoints must call `AddValidation()` in its own registration code, or its request types are not validated; the calls add up.
 
 Codes are string constants in classes whose names end in `ErrorCodes` (`CommonErrorCodes` and `HttpErrorCodes` to start). Every code is listed in `contract/problem-codes.v1.md`. Codes are only ever added, never renamed. `request_failed` is the generic fallback and may be replaced by a specific code for a status later.
+
+## API contract
+
+`contract/openapi.v1.json` is the OpenAPI description of the API, frozen in the repository. Clients generate their types from this file, not from a running server, and any change to the API surface shows up as a diff in it. It lists every operation under `/api/v1` by its endpoint name (`WithName`, which becomes the `operationId`) and the problem details schemas, where `title`, `status`, `code` and `traceId` are required. Each operation declares the problem responses the pipeline can return for it: 500 always; 400 when it takes parameters or a body; 408, 413 and 415 when it takes a body. Unknown routes and wrong methods are not operations, so their 404 and 405 are not listed. An endpoint declares the errors it returns itself (404, 409, 422) with `ProducesProblem`, for example `.ProducesProblem(StatusCodes.Status404NotFound)`. Health probes are not part of it.
+
+Regenerate it after changing an endpoint, a request or a response, and commit it together with the code change:
+
+```sh
+dotnet build src/MyApp.Api -p:UpdateContract=true
+```
+
+That build starts the application without a server, in the Production environment and with no configuration, to read its endpoints. Nothing registered at startup may depend on the environment or require a database or any other external service to describe the API. A normal build does not touch the file.
+
+Different .NET SDK patch versions can emit slightly different schema text, so check the contract (the test that compares it with the served document) on one pinned SDK, in CI, and regenerate it with that same SDK. Outside Production the running API also serves the same document at `/openapi/v1.json`, for inspection.

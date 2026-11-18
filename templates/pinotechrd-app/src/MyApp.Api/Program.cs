@@ -1,5 +1,6 @@
 using MyApp.Api;
 using MyApp.BuildingBlocks.Web;
+using MyApp.BuildingBlocks.Web.OpenApi;
 using MyApp.BuildingBlocks.Web.Problems;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,12 +12,14 @@ builder.Services.AddProblems();
 builder.Services.AddValidation();
 builder.Services.AddApiEndpoints(ApiAssembly.Assembly);
 builder.Services.AddHealth();
+builder.Services.AddOpenApiDocument();
 
 var app = builder.Build();
 
 app.UseProblems();
 app.MapHealth();
 app.MapApiEndpoints();
+app.MapOpenApiDocument();
 
 await app.RunAsync();
 
