@@ -89,6 +89,91 @@ That build starts the application without a server, in the Production environmen
 
 Different .NET SDK patch versions can emit slightly different schema text, so check the contract (the test that compares it with the served document) on one pinned SDK, in CI, and regenerate it with that same SDK. Outside Production the running API also serves the same document at `/openapi/v1.json`, for inspection.
 
+## Logging and telemetry
+
+`builder.AddTelemetry()` in `Program.cs` sets up both; the code is in `src/BuildingBlocks/MyApp.BuildingBlocks.Web/Telemetry/`.
+
+### Logs
+
+Logs are an event stream on standard output, one JSON object per line, in every environment (Serilog's compact format). The platform collects them (`docker logs`, Kubernetes, the cloud's log agent); the application writes no files and sends logs nowhere else.
+
+```json
+{"@t":"2026-11-18T06:15:09.99Z","@m":"HTTP GET /api/v1/boom responded 500 in 25.4461 ms","@i":"776c4006","@l":"Error","@tr":"c146d631ea7bb66213c14a1a9ae9d332","@sp":"acfd2052f6e05710","RequestRoute":"/api/v1/boom","RequestMethod":"GET","RequestPath":"/api/v1/boom","StatusCode":500,"Elapsed":25.4461,"SourceContext":"Serilog.AspNetCore.RequestLoggingMiddleware","Application":"MyApp.Api","Environment":"Production","Version":"1.0.0"}
+```
+
+`@t` is the time, `@m` the rendered message, `@l` the level (absent for Information), `@x` the exception, `@tr` and `@sp` the trace and span ids of the current activity. Every event carries `Application`, `Environment` and `Version`. `@tr` is the `traceId` of a problem response for the same request, so an error a client reports leads to its log lines and its trace.
+
+Each request writes exactly one completion event when it ends, with `RequestMethod`, `RequestPath` (without the query string), `RequestRoute` (the route template, when an endpoint matched), `StatusCode` and `Elapsed` in milliseconds. Its level is Error for a 5xx or an exception, Information otherwise, 4xx included: a 4xx is the client's outcome and scanners produce them in bulk, so count them by `StatusCode` instead. Health probes write it at Verbose, which is off, so polling does not flood the logs. An unhandled exception is logged once, with its stack trace, by the exception handler; the completion event of that request is at Error. If the exception happens after the response has started (part of the body was sent), the exception handler logs it once, the connection is aborted so the client sees an incomplete response, and the completion event is at Error with the status that was actually sent and no exception.
+
+To add the user or the tenant to the completion event (a later unit), call `IDiagnosticContext.Set("UserId", id)` from a middleware placed after authentication; the completion event wraps it and picks the property up. Only opaque identifiers, never names or emails.
+
+The levels come from the standard `Logging:LogLevel` section: `Default` for every category, and a category name (such as `Microsoft.AspNetCore`) for every category that starts with it. Values are `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical` and `None`; an invalid value stops the application at start. Provider sections (`Logging:Console`) and wildcards in category names are not read. Override them with environment variables:
+
+```sh
+Logging__LogLevel__Default=Debug
+Logging__LogLevel__Microsoft.AspNetCore=Information   # names with dots work in Docker and Kubernetes, not in a POSIX shell's export
+```
+
+The levels and the OTLP switch below are read once, at start: a configuration source added later or a reload of `appsettings.json` does not change them. Restart the application to apply a change.
+
+Some framework categories write a header value, the query string or the client address. They stay at `Warning` when `Default` or a parent such as `Microsoft.AspNetCore` is raised, and change only when the category itself is named (`TelemetryRegistration.PinnedLogCategories`):
+
+| Category | What it writes below Warning |
+| --- | --- |
+| `Microsoft.AspNetCore.Hosting.Diagnostics` | "Request starting" (Information) with the query string. The completion event replaces it. |
+| `Microsoft.AspNetCore.HttpOverrides` | "Unknown proxy" (Debug) with the client address and port; "Unparsable IP" (Debug) with the raw `X-Forwarded-For` value. |
+| `Microsoft.AspNetCore.Cors` | "The request has an origin header" (Debug) and "Request origin ... does not have permission" (Information) with the `Origin` value; a refused preflight names the requested headers. |
+| `Microsoft.AspNetCore.Server.Kestrel.BadRequests` | "bad request data" (Debug) quoting the rejected part of the request, such as a `Host` header value or the request line. |
+
+Naming one of them, for example `Logging__LogLevel__Microsoft.AspNetCore.HttpOverrides=Debug` to debug a proxy setup, is a deliberate choice that writes those values to the logs; do it briefly and not where the logs are kept for long.
+
+If the application cannot start (an invalid setting, for example) it writes one Fatal event with the exception in the same format and exits with code 1. A failure while the host starts (a hosted service or a setting validated at start) is written once, by the host, as "Hosting failed to start" at Error, and the exit code is 1. A shutdown signal that arrives while the host starts is not a failure: the exit code is 0 (the host still logs its "Hosting failed to start" event with the cancellation).
+
+A test or another piece of code can receive the events by registering a Serilog `ILogEventSink` (or `ILogEventEnricher`) as a service; nothing in the building block changes.
+
+### Secrets and personal data
+
+No log event and no span attribute may contain a header value (`Authorization`, `Cookie`, `Set-Cookie` or any other), a query string, a request or response body or the client address: they carry tokens, session cookies and personal data. At the shipped levels, and with `Default` or `Microsoft.AspNetCore` raised to any level, none of them is logged or recorded; only naming a pinned category (above) writes the values listed for it. Outgoing calls made through `IHttpClientFactory` are logged with header values and query values redacted by the platform.
+
+The raw request path is recorded: in the completion event (`RequestPath`), in the request scope of every framework event and in the `url.path` span attribute. It is kept because it finds the resource in an incident. Routes therefore carry opaque identifiers only, such as a UUID: never personal data (a national id, an email, a phone number, a name) and never a secret (tokens go in a header or in the body).
+
+The one accepted exception to the rule is the unhandled-exception event: it holds the exception in full (message, inner exceptions, stack trace), and an exception message can quote the value that caused it. That is acceptable only because access to the logs is restricted and they are kept for a limited period; the deployment must provide both. Developers do not put personal data or secrets in the messages of exceptions they throw, and do not log a caught exception that wraps user input at Information or above. For the same reason the exception handler logs a request that could not be bound by its status only: the platform's message quotes the rejected value.
+
+Code that logs follows the same rule: log identifiers, never credentials or personal data.
+
+Clients can send trace context. An incoming `traceparent` chooses the trace id that appears in the logs and in the `traceId` of problem responses, and can turn sampling off for its request; incoming `baggage` is forwarded on outgoing HTTP calls. The reverse proxy should remove `traceparent`, `tracestate` and `baggage` from requests of public clients, and keep them only from trusted callers.
+
+### Traces and metrics
+
+OpenTelemetry records a server span per request, named after its route with `http.route` set, and a client span per outgoing `HttpClient` call. Health probes produce no span. No header (the user agent included) and no query string is recorded; a client span keeps the scheme, host, port and path of its target only. Metrics: the ASP.NET Core server metrics (`http.server.request.duration` among them), the HTTP client metrics and the .NET runtime metrics. The resource names the service with the application name (`service.name`), its version (`service.version`) and its environment (`deployment.environment.name`); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them.
+
+Nothing is exported until an OTLP endpoint is set; with none, the application starts, runs and stops without trying to send anything. The endpoint is not in `appsettings.json`: set it in the environment, for example to an OpenTelemetry Collector:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317     # traces and metrics, gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf                  # with port 4318, when the collector only accepts HTTP
+```
+
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` alone turns on that signal only. The other standard `OTEL_EXPORTER_OTLP_*` variables (headers, timeout) apply as usual. An unreachable collector does not affect requests and logs nothing; the spans of that interval are lost. Stopping the application waits for the last export to give up, up to the exporter timeout (`OTEL_EXPORTER_OTLP_TIMEOUT`, 10 seconds by default); keep it below the orchestrator's termination grace period (30 seconds by default in Kubernetes). Logs are not sent over OTLP; they stay on standard output.
+
+Nothing is written to disk. `Serilog.AspNetCore` brings the file and debug sinks as transitive packages; they are inert, because sinks are configured in code and never read from configuration. The OTLP exporter writes to disk only if `OTEL_DOTNET_EXPERIMENTAL_OTLP_RETRY=disk` is set. Do not enable either.
+
+### Adding a source or a meter
+
+An `ActivitySource` or a `Meter` whose name starts with the project name followed by a dot (`MyApp.Sales`, for example) is collected with no registration:
+
+```csharp
+private static readonly ActivitySource Source = new("MyApp.Sales");
+private static readonly Meter Meter = new("MyApp.Sales");
+```
+
+For any other name, a library's for example, register it once from the code that adds that library, before or after `AddTelemetry()`:
+
+```csharp
+services.AddTelemetrySource("Npgsql");
+services.AddTelemetryMeter("Npgsql");
+```
+
 ## Security settings
 
 The API applies these protections to every request, in one fixed order set by `app.UseApiPipeline()` in `Program.cs` (the order and its reasons are in the XML documentation of that method):
