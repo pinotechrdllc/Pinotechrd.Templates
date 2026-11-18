@@ -98,11 +98,12 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Building blocks, part 2: the web building block (with the API host task below).
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
 - [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
+- [ ] `modular`: every project that maps endpoints calls `AddValidation()` itself (the built-in validation only covers the project that calls it), with a test that an invalid body is rejected in each module.
 - [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
 - [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
-- [ ] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
+- [x] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [ ] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
-- [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`.
+- [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`. CORS runs before the error handling middleware, and `rate_limited` (429) joins the code catalogue.
 - [ ] Logging and telemetry: Serilog and OpenTelemetry.
 - [ ] Integration test fixture with Testcontainers for PostgreSQL.
 - [ ] Phase review against the quality bar (architecture, API, operability); findings added as tasks.

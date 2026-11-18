@@ -3,7 +3,7 @@ namespace MyApp.BuildingBlocks.Domain;
 /// <summary>Classifies an <see cref="Error"/> so the boundary can map it to a protocol status.</summary>
 public enum ErrorKind
 {
-    /// <summary>An expected failure that fits no other kind, such as a broken business rule.</summary>
+    /// <summary>A business rule rejected the operation; the expected failure that fits no other kind.</summary>
     Failure = 0,
 
     /// <summary>The input is invalid; <see cref="Error.Details"/> may hold the messages per field.</summary>

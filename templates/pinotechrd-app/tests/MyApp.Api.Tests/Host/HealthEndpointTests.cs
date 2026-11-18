@@ -1,5 +1,5 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
+using MyApp.Api.Tests.Support;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -7,7 +7,7 @@ using MyApp.BuildingBlocks.Web;
 
 namespace MyApp.Api.Tests.Host;
 
-public class HealthEndpointTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public class HealthEndpointTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     private static readonly string[] ReadyTags = [HealthRegistration.ReadyTag];
 
