@@ -75,7 +75,7 @@ How the bar is enforced:
 - [x] Create the repository, `develop` as default branch, `main` for releases.
 - [x] Branch protection: pull request required, no force push, no deletion.
 - [x] Packaging project `Pinotechrd.Templates.csproj` (`PackageType` Template) and the `templates/pinotechrd-app` folder with a minimal `template.json`.
-- [ ] Template test harness: install the template, generate a project, build it and run its tests.
+- [x] Template test harness: install the template, generate a project, build it and run its tests.
 - [ ] CI for this repository: harness, CodeQL, dependency review, pinned actions, Dependabot. Add the checks to the branch protection.
 
 ## Phase 0b. Spikes
