@@ -103,7 +103,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [x] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [x] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
-- [ ] Cross-cutting: security headers, CORS, rate limiting, forwarded headers, options validated at start, no secrets in `appsettings.json`. CORS runs before the error handling middleware, and `rate_limited` (429) joins the code catalogue.
+- [x] Cross-cutting: security headers, CORS, rate limiting, forwarded headers trusted only from configured proxies, settings validated at start, no secrets in `appsettings.json`. The pipeline order, authentication included, is fixed inside the web building block.
 - [ ] Logging and telemetry: Serilog and OpenTelemetry.
 - [ ] Integration test fixture with Testcontainers for PostgreSQL.
 - [ ] Phase review against the quality bar (architecture, API, operability); findings added as tasks.
@@ -115,7 +115,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
-- [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie.
+- [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
 - [ ] Tenants endpoints: create, activate, suspend.
 - [ ] Seeding: first tenant and bootstrap administrator from configuration.
@@ -174,7 +174,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 ## Phase 8. Delivery
 
 - [ ] Dockerfiles for the API and the web.
-- [ ] Compose deployment: PostgreSQL, API, web, reverse proxy, `.env.example`.
+- [ ] Compose deployment: PostgreSQL, API, web, reverse proxy, `.env.example`. The reverse proxy does not expose `/health/*` to the internet (the readiness probe is public, unlimited and runs the dependency checks).
 - [ ] Workflows of the generated project: CI, CodeQL, dependency review, deploy.
 - [ ] `scripts/verify.ps1`, the same gate CI runs.
 - [ ] Kubernetes manifests: deployments, probes, autoscaling, migrator job.

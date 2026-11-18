@@ -27,19 +27,19 @@ public class ServedDocumentTests(ApiHostFactory factory) : IClassFixture<ApiHost
         // The endpoints that declare their own responses are the subject of other tests.
         document["paths"]!.AsObject().Remove(OwnBadRequest);
         document["paths"]!.AsObject().Remove(OwnNoInput);
-        OpenApiDocumentRules.AssertCommonProblemResponses(document);
+        OpenApiDocumentRules.AssertCommonProblemResponses(document, OpenApiDocumentRules.ExpectationsOf(factory.Services));
     }
 
-    // Breaks when 408, 413, 415 and 400 are not all declared for an operation with a request body.
+    // Breaks when 408, 413, 415, 429 and 400 are not all declared for an operation with a request body.
     [Fact]
-    public async Task OperationWithABodyDeclares400408413415And500()
+    public async Task OperationWithABodyDeclares400408413415429And500()
     {
         var document = await FetchAsync();
 
         var operation = OpenApiContract.Paths(document)[Items]!["post"]!.AsObject();
 
         Assert.NotNull(operation["requestBody"]);
-        foreach (var status in new[] { "400", "408", "413", "415", "500" })
+        foreach (var status in new[] { "400", "408", "413", "415", "429", "500" })
         {
             Assert.NotNull(OpenApiContract.ResponseSchema(operation, status, OpenApiContract.ProblemJson));
         }
@@ -62,9 +62,9 @@ public class ServedDocumentTests(ApiHostFactory factory) : IClassFixture<ApiHost
         }
     }
 
-    // Breaks when an operation without input gets a 400 or the body statuses.
+    // Breaks when an operation without input gets a 400 or the body statuses, or loses its 429.
     [Fact]
-    public async Task OperationWithoutInputDeclaresOnly500AmongTheCommonResponses()
+    public async Task OperationWithoutInputDeclares429And500ButNoInputStatuses()
     {
         var document = await FetchAsync();
 
@@ -87,7 +87,7 @@ public class ServedDocumentTests(ApiHostFactory factory) : IClassFixture<ApiHost
 
         var responses = OpenApiContract.Paths(document)[DeclaredErrors]!["get"]!["responses"]!.AsObject();
 
-        foreach (var status in new[] { "404", "409", "500" })
+        foreach (var status in new[] { "404", "409", "429", "500" })
         {
             Assert.True(responses.ContainsKey(status), $"Status {status} is missing; found: {string.Join(", ", responses.Select(r => r.Key))}.");
             Assert.NotNull(responses[status]!["content"]?[OpenApiContract.ProblemJson]);

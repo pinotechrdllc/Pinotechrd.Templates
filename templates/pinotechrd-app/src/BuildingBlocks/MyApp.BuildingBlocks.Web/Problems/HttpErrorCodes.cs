@@ -28,6 +28,12 @@ public static class HttpErrorCodes
     public const string UnsupportedMediaType = "unsupported_media_type";
 
     /// <summary>
+    /// The client sent more requests than its rate limit allows; the <c>Retry-After</c> header says when to try
+    /// again (429).
+    /// </summary>
+    public const string RateLimited = "rate_limited";
+
+    /// <summary>
     /// Any other error status the pipeline produces without a more specific code. It is a fallback: a status that
     /// gets it today may get a specific code later.
     /// </summary>

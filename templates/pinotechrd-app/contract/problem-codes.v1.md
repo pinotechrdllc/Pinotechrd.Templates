@@ -29,4 +29,5 @@ An error is expected, so it never answers 500: that status is reserved for defec
 | `request_timeout` | 408 | The request body was sent too slowly, below the server's minimum data rate. | `HttpErrorCodes` |
 | `payload_too_large` | 413 | The request body is larger than the server accepts. | `HttpErrorCodes` |
 | `unsupported_media_type` | 415 | The request body has a content type the endpoint does not accept. | `HttpErrorCodes` |
+| `rate_limited` | 429 | The client sent more requests than its rate limit allows; `Retry-After` gives the seconds to wait. | `HttpErrorCodes` |
 | `request_failed` | any other | An error status the pipeline produces without a more specific code (fallback). | `HttpErrorCodes` |
