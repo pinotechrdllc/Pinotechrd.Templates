@@ -13,6 +13,9 @@ internal static class PipelineProblems
     /// <summary>
     /// Adds the <c>code</c> when the document has none (validation documents get
     /// <see cref="CommonErrorCodes.ValidationFailed"/>, the others the code of their status) and sets the
+    /// <c>title</c> of a validation document to the title of its status ("Bad Request"), so the built-in validation
+    /// and a validation <see cref="Error"/> returned through <see cref="ErrorProblems.ToProblem"/> share one title, the
+    /// one that belongs to their <c>type</c>. It also sets the
     /// <c>traceId</c> to the trace id of the current activity, or to the trace identifier of the request. It
     /// removes the <c>exception</c> member that the developer exception page adds, so exception data never leaves
     /// the server, and names the <c>errors</c> keys like the JSON members (see <see cref="ValidationErrorKeys"/>).
@@ -23,6 +26,8 @@ internal static class PipelineProblems
         string code;
         if (problem is HttpValidationProblemDetails validation)
         {
+            // The built-in validation writes "One or more validation errors occurred."; one title per type instead.
+            ErrorProblems.SetStatus(validation, validation.Status ?? httpContext.Response.StatusCode);
             ValidationErrorKeys.Normalize(validation, httpContext);
             code = CommonErrorCodes.ValidationFailed;
         }

@@ -7,7 +7,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 15: the build-time contract generation runs the application without configuration and without a
+// The build-time contract generation runs the application without configuration and without a
 // database. The tool that does it is not available in-process, so these tests lock the mechanism it relies on: the
 // registration with validation at start turned off. (The served document equaling the committed contract is checked by
 // ContractIsCurrentTests, whose host has only a placeholder connection string.)

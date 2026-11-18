@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criterion 31: authentication and authorization are added by the API pipeline, after routing and the rate limiter and
+// Authentication and authorization are added by the API pipeline, after routing and the rate limiter and
 // inside the error handling. The secured fixture routes exist in every host (they are never requested in a host
 // without authentication), and hosts that need authentication register the test scheme through WithServices.
 public class AuthenticationPlacementTests

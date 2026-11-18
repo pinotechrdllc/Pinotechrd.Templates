@@ -11,3 +11,35 @@ updates:
     groups:
       actions:
         patterns: [ "*" ]
+
+  # The packages of the generated project, from the template's Directory.Packages.props (central package management;
+  # the template ships no lock file, so only that file changes). Dependabot puts a package in the first group it matches.
+  - package-ecosystem: "nuget"
+    directory: "/templates/pinotechrd-app"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:15"
+    open-pull-requests-limit: 5
+    ignore:
+      # The project targets .NET 10 (LTS): the framework packages stay on its major version.
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: [ "version-update:semver-major" ]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: [ "version-update:semver-major" ]
+    groups:
+      test:
+        patterns:
+          - "Microsoft.AspNetCore.Mvc.Testing"
+          - "Microsoft.NET.Test.Sdk"
+          - "Testcontainers*"
+          - "xunit*"
+      opentelemetry:
+        patterns: [ "OpenTelemetry*" ]
+      microsoft:
+        patterns:
+          - "Microsoft.AspNetCore.*"
+          - "Microsoft.Extensions.*"
+      other:
+        patterns: [ "*" ]

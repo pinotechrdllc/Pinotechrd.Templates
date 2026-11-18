@@ -6,7 +6,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 19: no span holds exception text, whichever source recorded the failure. Needs Docker for the failing
+// No span holds exception text, whichever source recorded the failure. Needs Docker for the failing
 // command; the other two cases need none but share the helpers.
 [Collection(PostgresContainer.Name)]
 public class SpanErrorTests(PostgresFixture postgres)

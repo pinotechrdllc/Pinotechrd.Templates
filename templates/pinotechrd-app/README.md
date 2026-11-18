@@ -34,10 +34,10 @@ MyApp is a .NET 10 API organized in clean architecture layers: dependencies poin
 
 | Project | Responsibility |
 | --- | --- |
-| `src/MyApp.Domain` | Entities, value objects and business rules. No references to other projects or packages. |
-| `src/MyApp.Contracts` | Request and response DTOs shared with clients. |
+| `src/MyApp.Domain` | Entities, value objects and business rules. Depends on the domain building block only; no packages. |
+| `src/MyApp.Contracts` | The request and response types of the HTTP endpoints, shared with clients. No references to other projects. |
 | `src/MyApp.Resources` | Localized messages. |
-| `src/MyApp.Application` | Use cases. Depends on Domain, Contracts and Resources. |
+| `src/MyApp.Application` | Use cases (`*Handler` classes, registered by the host). Depends on Domain, Contracts, Resources and the application building block. |
 | `src/MyApp.Infrastructure` | Persistence, messaging and other external systems. Depends on Application and the infrastructure building block. |
 | `src/MyApp.Api` | HTTP host and endpoints. Composes the other projects. |
 | `src/BuildingBlocks/` | Base code shared by the layers: domain types (`Domain`), handler registration (`Application`), the database connection (`Infrastructure`) and the HTTP plumbing (`Web`). They reference no layer. |
@@ -53,7 +53,16 @@ dotnet build MyApp.slnx
 dotnet test MyApp.slnx
 ```
 
-Run the API with `dotnet run --project src/MyApp.Api`. It needs a PostgreSQL connection string (see [Database](#database)).
+Run the API with `dotnet run --project src/MyApp.Api`. It needs a PostgreSQL connection string (see [Database](#database)). It starts with the launch profile in `src/MyApp.Api/Properties/launchSettings.json`: the Development environment, so user secrets and `appsettings.Development.json` are read and the OpenAPI document is served, at `http://localhost:5180` (a free port chosen when the project was generated; change `applicationUrl` there to use another). With the database running, these answer 200:
+
+```sh
+curl http://localhost:5180/health/live
+curl http://localhost:5180/health/ready
+curl http://localhost:5180/api/v1/version
+curl http://localhost:5180/openapi/v1.json
+```
+
+`dotnet run --no-launch-profile`, a published build and a container run in Production: no user secrets and no `/openapi/v1.json`.
 
 The tests need Docker: they start PostgreSQL in a container, and they fail, rather than skip, when Docker is not running.
 
@@ -96,10 +105,12 @@ Then, for that container (local values only):
 
 ```sh
 dotnet user-secrets init --project src/MyApp.Api      # once; user secrets are read in the Development environment
-dotnet user-secrets set "ConnectionStrings:Database" "Host=localhost;Port=5432;Database=app;Username=app;Password=app" --project src/MyApp.Api
+dotnet user-secrets set "ConnectionStrings:Database" "Host=127.0.0.1;Port=5432;Database=app;Username=app;Password=app" --project src/MyApp.Api
 ```
 
-or, for one shell session, `export ConnectionStrings__Database="Host=localhost;Port=5432;Database=app;Username=app;Password=app"` (PowerShell: `$env:ConnectionStrings__Database = "..."`).
+or, for one shell session, `export ConnectionStrings__Database="Host=127.0.0.1;Port=5432;Database=app;Username=app;Password=app"` (PowerShell: `$env:ConnectionStrings__Database = "..."`).
+
+Use `Host=127.0.0.1`, not `localhost`: the port is published on IPv4 only, and on Windows `localhost` tries `::1` first, whose refused connection takes about 2 seconds, so `/health/ready` would answer 503 with the database up.
 
 ### Fail fast
 
@@ -133,7 +144,13 @@ Npgsql writes no log events: its debug events name the host, the database and th
 
 ## Adding an endpoint
 
-Each use case is one file in `src/MyApp.Api/Endpoints/` with a public class that implements `IEndpoint`. It is found at startup and mapped under `/api/v1`, so routes never repeat the version prefix:
+<!--#if (modular) -->
+A use case of a module has two parts, both in the module (see [Modules](#modules)). Its logic is a `*Handler` class with a public `HandleAsync` method in the module's Application project; `MyModuleModule.AddServices` registers every such class of that project with `AddHandlers`. Its endpoint is one file in the module's Endpoints project with a public class that implements `IEndpoint`, which receives the handler as a parameter, calls it and turns its `Result` into the response; its request and response types sit next to it. The endpoint is found at startup and mapped under `/api/v1/{module}`; it sets a unique name with `WithName` (it becomes the `operationId` of the API contract) and is tagged with the module name unless it calls `WithTags`.
+
+The few endpoints that belong to the host and to no module, such as `GET /api/v1/version`, are files in `src/MyApp.Api/Endpoints/`, mapped under `/api/v1`; each sets `WithName` and a tag with `WithTags`, so no operation falls back to the assembly name as its tag. Routes never repeat the prefix:
+<!--#else -->
+A use case has two parts. Its logic is a `*Handler` class with a public `HandleAsync` method in `src/MyApp.Application`; `src/MyApp.Api/BusinessComposition.Clean.cs` registers every such class of that project as a scoped service, so it needs no registration of its own. Its endpoint is one file in `src/MyApp.Api/Endpoints/` with a public class that implements `IEndpoint`, which receives the handler as a parameter, calls it and turns its `Result` into the response; its request and response types go in `src/MyApp.Contracts`. The endpoint is found at startup and mapped under `/api/v1`, so routes never repeat the version prefix. Each endpoint sets a unique name with `WithName` (it becomes the `operationId` of the API contract) and a tag for its feature with `WithTags`, so no operation falls back to the assembly name as its tag:
+<!--#endif -->
 
 ```csharp
 public sealed class GetVersionEndpoint : IEndpoint
@@ -146,9 +163,7 @@ public sealed class GetVersionEndpoint : IEndpoint
 }
 ```
 
-Each endpoint sets a unique name with `WithName` (it becomes the `operationId` of the API contract) and a tag for its feature with `WithTags`, so no operation falls back to the assembly name as its tag.
-
-Health probes live outside the API group: `/health/live` and `/health/ready` (checks tagged `HealthRegistration.ReadyTag`).
+Health probes live outside the API group: `/health/live` and `/health/ready` (checks tagged `HealthRegistration.ReadyTag`). They answer `GET` and `HEAD` only; any other method answers 405 `method_not_allowed`.
 
 ## Errors
 
@@ -166,7 +181,7 @@ Error responses produced by the pipeline (an unknown route, a malformed request,
 }
 ```
 
-`code` is the contract that clients and translations key on. `errors` appears only on validation errors. `traceId` correlates the response with the logs. An endpoint returns a failed result with `ToProblem()`, which maps the `ErrorKind` to the status: `Validation` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409, and `Failure` 422 Unprocessable Content when a business rule rejects the operation. A returned error is expected and never answers 500; 500 `internal_error` is reserved for exceptions. A body that is not valid JSON or does not match the expected shape answers 400 `invalid_json`; any other malformed request (a missing or unparsable route, query or header value, or a missing body) answers 400 `bad_request`.
+`code` is the contract that clients and translations key on. `title` is the name of the status, the same for every response with that status: "Bad Request" for every 400, a validation failure from the built-in validation or from a validation `Error` included, and "Unprocessable Content" for 422. `errors` appears only on validation errors. `traceId` correlates the response with the logs. An endpoint returns a failed result with `ToProblem()`, which maps the `ErrorKind` to the status: `Validation` 400, `Unauthorized` 401, `Forbidden` 403, `NotFound` 404, `Conflict` 409, and `Failure` 422 Unprocessable Content when a business rule rejects the operation. A returned error is expected and never answers 500; 500 `internal_error` is reserved for exceptions. A body that is not valid JSON or does not match the expected shape answers 400 `invalid_json`; any other malformed request (a missing or unparsable route, query or header value, or a missing body) answers 400 `bad_request`.
 
 ```csharp
 routes.MapGet("/things/{id}", Results<Ok<Thing>, ProblemHttpResult> (int id) =>
@@ -194,7 +209,7 @@ dotnet build src/MyApp.Api -p:UpdateContract=true
 
 That build starts the application without a server, in the Production environment and with no configuration, to read its endpoints. Nothing registered at startup may depend on the environment or require a database or any other external service to describe the API. A normal build does not touch the file.
 
-Different .NET SDK patch versions can emit slightly different schema text, so check the contract (the test that compares it with the served document) on one pinned SDK, in CI, and regenerate it with that same SDK. Outside Production the running API also serves the same document at `/openapi/v1.json`, for inspection.
+The contract is generated, and compared with the served document by its test, with the .NET SDK that `global.json` selects: `10.0.100` or a later 10.0 SDK, the latest installed feature band (`rollForward: latestFeature`), so two machines can select different SDKs (`dotnet --version` in the project folder shows which). Different SDK versions can emit slightly different schema text for the same API. If the contract test fails only because of such text, with no change to the API, regenerate the contract with the SDK that CI selects and commit it; if two feature bands keep producing different documents, make every machine and CI select the same one, for example by setting `version` in `global.json` to that SDK with `rollForward: latestPatch`. Outside Production the running API also serves the same document at `/openapi/v1.json`, for inspection.
 
 ## Logging and telemetry
 
@@ -321,3 +336,7 @@ Limits of this setup, stated plainly:
 
 - `/health/live` and `/health/ready` are public (they allow anonymous access, so a fallback authorization policy never applies to them) and never rate limited, and `/health/ready` runs the readiness checks (a query to the database) on every request. The reverse proxy must not expose `/health/*` to the internet; only the orchestrator should reach them.
 - When the server listens on a Unix socket or a named pipe there is no remote address, so every client shares one rate limit partition. That setup is not supported with this limiter: listen on TCP behind the proxy and list the proxy as above.
+
+## License
+
+MIT, in `LICENSE`. Before publishing the project, replace the placeholder in its copyright line with the name of the copyright owner, or replace the file if the project uses another license.

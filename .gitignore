@@ -69,3 +69,6 @@ _pkginspect*/
 *.snupkg
 coverage*.xml
 coverage*.json
+
+# Agent worktrees of local sessions
+.claude/worktrees/

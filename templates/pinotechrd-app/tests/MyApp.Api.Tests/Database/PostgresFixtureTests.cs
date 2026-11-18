@@ -1,6 +1,6 @@
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 3: without Docker the database tests fail with a message that names Docker; they are never skipped.
+// Without Docker the database tests fail with a message that names Docker; they are never skipped.
 public class PostgresFixtureTests
 {
     // Breaks when a fixture that cannot reach Docker starts silently, hangs, or reports a failure that does not name Docker.

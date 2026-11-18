@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 17: the whole secrets matrix also holds with the framework's parent categories raised to Trace, and the
+// The whole secrets matrix also holds with the framework's parent categories raised to Trace, and the
 // client address (the remote address of the request) is in no event and in no span tag.
 public class RaisedLevelsSecretsTests
 {

@@ -4,7 +4,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criterion 21: the catalogue and the OpenAPI documents describe the 429 answer.
+// The catalogue and the OpenAPI documents describe the 429 answer.
 public class RateLimitContractTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     // Breaks when rate_limited is missing from the catalogue or listed with another status.

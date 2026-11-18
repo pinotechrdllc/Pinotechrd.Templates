@@ -2,7 +2,6 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 1 to 3 of the HTTP security change.
 public class SecurityHeadersTests
 {
     private const string Public = "https://api.example.com";

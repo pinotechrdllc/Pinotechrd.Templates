@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 22: the README's local database command stays safe and in step with the fixture.
+// The README's local database command stays safe and in step with the fixture.
 public class ReadmeSafetyTests
 {
     private static string DockerRunLine()

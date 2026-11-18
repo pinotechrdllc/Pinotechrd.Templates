@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 13 to 16 of the HTTP security change. The limit is two requests per hour, so a client is identified by
+// The limit is two requests per hour, so a client is identified by
 // how many of its requests are answered 200 before the first 429.
 public class ForwardedHeadersTests
 {

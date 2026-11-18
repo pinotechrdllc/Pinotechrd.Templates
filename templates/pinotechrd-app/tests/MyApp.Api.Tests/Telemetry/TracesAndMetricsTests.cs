@@ -8,7 +8,7 @@ using MyApp.BuildingBlocks.Web.Telemetry;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criteria 8 to 11: what the host's own OpenTelemetry providers record. The capture is added to the providers of one
+// What the host's own OpenTelemetry providers record. The capture is added to the providers of one
 // host through the SDK's base classes; activity sources and meters are process-wide, so each test finds its data by a
 // trace id it sent or by a source or meter name that only it uses.
 public class TracesAndMetricsTests

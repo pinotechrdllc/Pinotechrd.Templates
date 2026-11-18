@@ -5,7 +5,7 @@ using MyApp.BuildingBlocks.Web;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 9: /health/live never touches the database. Needs Docker for the connection count.
+// /health/live never touches the database. Needs Docker for the connection count.
 [Collection(PostgresContainer.Name)]
 public class LiveProbeTests(PostgresFixture postgres)
 {

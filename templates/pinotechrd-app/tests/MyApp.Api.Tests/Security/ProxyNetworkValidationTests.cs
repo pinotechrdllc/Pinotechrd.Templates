@@ -5,7 +5,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 32 to 38 of the HTTP security change: strict validation of trusted proxies and networks, what that means for
+// Strict validation of trusted proxies and networks, what that means for
 // requests, and the health probes under a fallback authorization policy.
 public class ProxyNetworkValidationTests
 {

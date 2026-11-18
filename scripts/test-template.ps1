@@ -53,6 +53,8 @@ $generateOnlyCases = @(
 # {Module} stands for the module name of the case.
 $sharedPaths = @(
     "src/$projectName.Api",
+    "src/$projectName.Api/Properties/launchSettings.json",
+    'LICENSE',
     "src/BuildingBlocks/$projectName.BuildingBlocks.Domain",
     "src/BuildingBlocks/$projectName.BuildingBlocks.Application",
     "src/BuildingBlocks/$projectName.BuildingBlocks.Infrastructure",
@@ -68,6 +70,7 @@ $architecturePaths = @{
         @{ Path = "src/$projectName.Resources"; Required = $true },
         @{ Path = "src/$projectName.Application"; Required = $true },
         @{ Path = "src/$projectName.Infrastructure"; Required = $true },
+        @{ Path = "src/$projectName.Api/BusinessComposition.Clean.cs"; Required = $true },
         @{ Path = "tests/$projectName.Domain.Tests"; Required = $true },
         @{ Path = "tests/$projectName.Api.Tests/Architecture/Clean"; Required = $true }
     )

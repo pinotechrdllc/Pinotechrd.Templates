@@ -9,7 +9,7 @@ using MyApp.BuildingBlocks.Web.Telemetry;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 14: a startup failure is written as one Fatal event and the process exits with a non-zero code. The in-process
+// A startup failure is written as one Fatal event and the process exits with a non-zero code. The in-process
 // tests call the function that writes the event with the console captured; one test starts the built application.
 public class StartupFailureLoggingTests
 {

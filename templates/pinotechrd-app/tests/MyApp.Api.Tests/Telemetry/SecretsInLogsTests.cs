@@ -4,7 +4,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 7: no header value, query string or body reaches a log event, whatever the outcome of the request and
+// No header value, query string or body reaches a log event, whatever the outcome of the request and
 // whatever the log level. Every request carries an Authorization header, a Cookie header, a custom header, a query
 // string with a token and a JSON body with a recognizable value (see SecretScenarios); the sink then receives every
 // event of the host and each piece of text of each event is searched for those values.

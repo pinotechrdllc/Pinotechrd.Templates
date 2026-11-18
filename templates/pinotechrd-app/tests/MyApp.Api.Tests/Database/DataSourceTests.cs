@@ -5,7 +5,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criterion 10: the registration of the shared data source. It resolves the object without opening a connection, so
+// The registration of the shared data source. It resolves the object without opening a connection, so
 // no database or Docker is needed.
 public class DataSourceRegistrationTests
 {
@@ -47,7 +47,7 @@ public class DataSourceRegistrationTests
     }
 }
 
-// Criteria 11 and 12: the data source against a real server. Needs Docker.
+// The data source against a real server. Needs Docker.
 [Collection(PostgresContainer.Name)]
 public class DataSourceBehaviorTests(PostgresFixture postgres)
 {

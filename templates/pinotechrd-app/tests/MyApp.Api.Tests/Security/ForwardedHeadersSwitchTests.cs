@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criterion 23: the platform switch (ASPNETCORE_FORWARDEDHEADERS_ENABLED, configuration key ForwardedHeaders_Enabled)
+// The platform switch (ASPNETCORE_FORWARDEDHEADERS_ENABLED, configuration key ForwardedHeaders_Enabled)
 // cannot widen who is trusted to set X-Forwarded-For.
 public class ForwardedHeadersSwitchTests
 {

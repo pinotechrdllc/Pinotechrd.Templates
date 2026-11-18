@@ -4,7 +4,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 13: the standard Logging:LogLevel section controls what is emitted, and an invalid value stops the host.
+// The standard Logging:LogLevel section controls what is emitted, and an invalid value stops the host.
 public class LogLevelSettingTests
 {
     private const string DefaultLevel = "Logging:LogLevel:Default";

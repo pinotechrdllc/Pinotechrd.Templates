@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 27 to 29: Cache-Control, and Vary: Origin. (Criterion 28, Cross-Origin-Resource-Policy, is part of the
+// Cache-Control, and Vary: Origin. (Cross-Origin-Resource-Policy is part of the
 // shared SecurityAssert.HasStandardHeaders used by SecurityHeadersTests.)
 public class ResponseHeaderPolicyTests
 {

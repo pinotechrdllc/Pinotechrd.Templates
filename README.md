@@ -11,7 +11,14 @@ dotnet new install Pinotechrd.Templates
 dotnet new pinotechrd-app -n MyApp
 ```
 
-Options:
+Options that change the generated project today:
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `--architecture` | `clean`, `modular` | `clean` |
+| `--module` | the name of the first module, a PascalCase C# identifier (used with `modular` only) | `Core` |
+
+Planned options: they are accepted, but change nothing yet.
 
 | Option | Values | Default |
 | --- | --- | --- |

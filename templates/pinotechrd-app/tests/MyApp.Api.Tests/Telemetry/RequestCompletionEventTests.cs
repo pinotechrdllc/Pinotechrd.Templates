@@ -9,7 +9,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criteria 1 to 6 of the logging and telemetry change: the one completion event of each request. Every test uses its
+// The one completion event of each request. Every test uses its
 // own host with its own sink, so tests running in parallel never see each other's events.
 public class RequestCompletionEventTests
 {

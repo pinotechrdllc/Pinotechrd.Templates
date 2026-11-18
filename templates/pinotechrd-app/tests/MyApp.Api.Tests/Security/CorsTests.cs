@@ -3,7 +3,6 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 4 to 9 of the HTTP security change.
 public class CorsTests
 {
     private const string Listed = "https://app.example.com";

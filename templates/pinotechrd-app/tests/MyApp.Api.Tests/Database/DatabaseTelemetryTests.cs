@@ -8,7 +8,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criteria 13 and 14: what the host's OpenTelemetry providers record for database work. Activity sources are
+// What the host's OpenTelemetry providers record for database work. Activity sources are
 // process-wide, so each test finds its spans by a statement it chose. Needs Docker.
 [Collection(PostgresContainer.Name)]
 public class DatabaseTelemetryTests(PostgresFixture postgres)
