@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using MyApp.BuildingBlocks.Web;
-using MyApp.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 
 namespace MyApp.Api.Tests.Support;
 

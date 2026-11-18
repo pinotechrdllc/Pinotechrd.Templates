@@ -5,7 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using MyApp.Api.Tests.Support;
 using MyApp.BuildingBlocks.Web;
-using MyApp.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using Serilog.Events;
 
 namespace MyApp.Api.Tests.Database;

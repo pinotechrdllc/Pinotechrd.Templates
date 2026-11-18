@@ -5,7 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace MyApp.Infrastructure.Database;
+namespace MyApp.BuildingBlocks.Infrastructure.Database;
 
 /// <summary>
 /// The connection to PostgreSQL: one <see cref="NpgsqlDataSource"/> for the whole process (its connection pool), built

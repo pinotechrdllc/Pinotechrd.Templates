@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using MyApp.Api.Tests.Support;
-using MyApp.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using Npgsql;
 
 namespace MyApp.Api.Tests.Database;

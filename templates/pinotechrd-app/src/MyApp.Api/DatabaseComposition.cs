@@ -1,13 +1,13 @@
 using System.Reflection;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Web.Telemetry;
-using MyApp.Infrastructure.Database;
 
 namespace MyApp.Api;
 
 /// <summary>
-/// Joins the database of the infrastructure layer to the web host: the shared data source, its readiness check and
-/// its telemetry. It lives here because only the API knows both the infrastructure and the web building block.
+/// Joins the database of the infrastructure building block to the web host: the shared data source, its readiness check
+/// and its telemetry. It lives here because only the API knows both the infrastructure and the web building blocks.
 /// </summary>
 public static class DatabaseComposition
 {

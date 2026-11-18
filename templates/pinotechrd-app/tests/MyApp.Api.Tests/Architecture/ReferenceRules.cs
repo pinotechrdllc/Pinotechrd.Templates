@@ -2,7 +2,10 @@ using System.Reflection;
 
 namespace MyApp.Api.Tests.Architecture;
 
-/// <summary>Reflection helpers that report forbidden references of an assembly.</summary>
+/// <summary>
+/// Reflection helpers that report forbidden references of an assembly. Shared by both architectures: it names the
+/// building blocks and the host only, never an assembly that exists in one architecture alone.
+/// </summary>
 internal static class ReferenceRules
 {
     public static readonly string[] AdoAndHttpPrefixes = ["System.Data", "System.Net.Http"];
@@ -36,27 +39,27 @@ internal static class ReferenceRules
 
     public static Assembly BuildingBlocksApplication => MyApp.BuildingBlocks.Application.BuildingBlocksApplicationAssembly.Assembly;
 
+    public static Assembly BuildingBlocksInfrastructure => MyApp.BuildingBlocks.Infrastructure.BuildingBlocksInfrastructureAssembly.Assembly;
+
     public static Assembly BuildingBlocksWeb => MyApp.BuildingBlocks.Web.BuildingBlocksWebAssembly.Assembly;
-
-    public static Assembly Domain => MyApp.Domain.DomainAssembly.Assembly;
-
-    public static Assembly Application => MyApp.Application.ApplicationAssembly.Assembly;
-
-    public static Assembly Contracts => MyApp.Contracts.ContractsAssembly.Assembly;
-
-    public static Assembly Resources => MyApp.Resources.ResourcesAssembly.Assembly;
-
-    public static Assembly Infrastructure => MyApp.Infrastructure.InfrastructureAssembly.Assembly;
 
     public static Assembly Api => MyApp.Api.ApiAssembly.Assembly;
 
-    /// <summary>The business assemblies: every assembly of the solution that is not a building block.</summary>
-    public static IReadOnlyList<Assembly> AllLayers => [Domain, Application, Contracts, Resources, Infrastructure, Api];
+    public static IReadOnlyList<Assembly> BuildingBlocks =>
+        [BuildingBlocksDomain, BuildingBlocksApplication, BuildingBlocksInfrastructure, BuildingBlocksWeb];
 
-    public static IReadOnlyList<Assembly> BuildingBlocks => [BuildingBlocksDomain, BuildingBlocksApplication, BuildingBlocksWeb];
+    /// <summary>
+    /// The name every assembly of the solution starts with, taken from the name of the test assembly
+    /// (<c>{Root}.Api.Tests</c>) so it survives the renaming of the template placeholder.
+    /// </summary>
+    public static string SolutionRoot { get; } = RootOf(typeof(ReferenceRules).Assembly.GetName().Name!);
 
-    /// <summary>Every assembly of the solution that a rule may name: the business assemblies and the building blocks.</summary>
-    public static IReadOnlyList<Assembly> AllSolutionAssemblies => [.. AllLayers, .. BuildingBlocks];
+    public static string RootOf(string testAssemblyName)
+    {
+        const string Suffix = ".Api.Tests";
+        Assert.EndsWith(Suffix, testAssemblyName, StringComparison.Ordinal);
+        return testAssemblyName[..^Suffix.Length];
+    }
 
     public static string NameOf(Assembly assembly) => assembly.GetName().Name!;
 
@@ -69,13 +72,23 @@ internal static class ReferenceRules
     public static bool HasPrefix(string name, string prefix) =>
         name == prefix || name.StartsWith(prefix + ".", StringComparison.Ordinal);
 
+    /// <summary>True when the name is an assembly of this solution (it starts with the solution root).</summary>
+    public static bool IsSolutionAssembly(string name) => HasPrefix(name, SolutionRoot);
+
     /// <summary>Returns one message per reference of <paramref name="assembly"/> that is a forbidden solution assembly or forbidden prefix.</summary>
     public static IReadOnlyList<string> Violations(
         Assembly assembly,
         IEnumerable<Assembly> forbiddenSolutionAssemblies,
+        IEnumerable<string> forbiddenPrefixes) =>
+        ViolationsByName(assembly, forbiddenSolutionAssemblies.Select(NameOf), forbiddenPrefixes);
+
+    /// <summary>The same check with the forbidden solution assemblies given by name.</summary>
+    public static IReadOnlyList<string> ViolationsByName(
+        Assembly assembly,
+        IEnumerable<string> forbiddenSolutionAssemblyNames,
         IEnumerable<string> forbiddenPrefixes)
     {
-        var forbiddenSolution = forbiddenSolutionAssemblies.Select(NameOf).ToHashSet(StringComparer.Ordinal);
+        var forbiddenSolution = forbiddenSolutionAssemblyNames.ToHashSet(StringComparer.Ordinal);
         var prefixes = forbiddenPrefixes.ToArray();
         var messages = new List<string>();
         foreach (var reference in ReferencedNames(assembly))
@@ -91,6 +104,18 @@ internal static class ReferenceRules
         }
 
         return messages;
+    }
+
+    /// <summary>
+    /// Returns a message for every reference of <paramref name="assembly"/> to a solution assembly that is not in
+    /// <paramref name="allowed"/>, whatever that assembly is called: it does not depend on a list of the assemblies.
+    /// </summary>
+    public static IReadOnlyList<string> SolutionReferenceViolations(Assembly assembly, params Assembly[] allowed)
+    {
+        var allowedNames = allowed.Select(NameOf).ToHashSet(StringComparer.Ordinal);
+        return [.. ReferencedNames(assembly)
+            .Where(r => IsSolutionAssembly(r) && !allowedNames.Contains(r))
+            .Select(r => $"Assembly '{NameOf(assembly)}' must not reference solution assembly '{r}'.")];
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ try
     builder.Services.AddProblems();
     builder.Services.AddHttpSecurity();
     // Built-in validation is generated at compile time for the request types of the endpoints mapped in the project that
-    // calls AddValidation(), wherever those types are declared (MyApp.Contracts included). A project of its own that maps
+    // calls AddValidation(), wherever those types are declared (a contracts project included). A project of its own that maps
     // endpoints (such as a module's endpoints) must call AddValidation() in its own registration; the calls add up.
     builder.Services.AddValidation();
     builder.Services.AddApiEndpoints(ApiAssembly.Assembly);

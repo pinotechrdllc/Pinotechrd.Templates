@@ -2,7 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using MyApp.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using Npgsql;
 
 namespace MyApp.Api.Tests.Database;

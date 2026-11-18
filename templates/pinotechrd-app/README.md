@@ -1,5 +1,19 @@
 # MyApp
 
+<!--#if (modular) -->
+MyApp is a .NET 10 API organized as a modular monolith: one host composes the business modules, each a bounded context with clean architecture layers inside, and every module builds on the same shared building blocks. It was generated from the `pinotechrd-app` template.
+
+## Project layout
+
+| Project | Responsibility |
+| --- | --- |
+| `src/MyApp.Api` | The host: HTTP pipeline, health probes, host endpoints and the composition of the modules. |
+| `src/BuildingBlocks/` | Base code shared by every module: domain types (`Domain`), handler registration (`Application`), the database connection (`Infrastructure`) and the HTTP plumbing (`Web`). They reference no module. |
+| `tests/MyApp.BuildingBlocks.Tests` | Unit tests for the building blocks. |
+| `tests/MyApp.Api.Tests` | Integration tests that host the API in memory, and the architecture rules. |
+
+Modules live under `src/Modules/`.
+<!--#else -->
 MyApp is a .NET 10 API organized in clean architecture layers: dependencies point inward, so the domain knows nothing about frameworks or the database. It was generated from the `pinotechrd-app` template.
 
 ## Project layout
@@ -10,10 +24,13 @@ MyApp is a .NET 10 API organized in clean architecture layers: dependencies poin
 | `src/MyApp.Contracts` | Request and response DTOs shared with clients. |
 | `src/MyApp.Resources` | Localized messages. |
 | `src/MyApp.Application` | Use cases. Depends on Domain, Contracts and Resources. |
-| `src/MyApp.Infrastructure` | Database, messaging and other external systems. Depends on Application. |
+| `src/MyApp.Infrastructure` | Persistence, messaging and other external systems. Depends on Application and the infrastructure building block. |
 | `src/MyApp.Api` | HTTP host and endpoints. Composes the other projects. |
+| `src/BuildingBlocks/` | Base code shared by the layers: domain types (`Domain`), handler registration (`Application`), the database connection (`Infrastructure`) and the HTTP plumbing (`Web`). They reference no layer. |
 | `tests/MyApp.Domain.Tests` | Unit tests for the domain. |
-| `tests/MyApp.Api.Tests` | Integration tests that host the API in memory. |
+| `tests/MyApp.BuildingBlocks.Tests` | Unit tests for the building blocks. |
+| `tests/MyApp.Api.Tests` | Integration tests that host the API in memory, and the architecture rules. |
+<!--#endif -->
 
 ## Build and test
 
@@ -28,7 +45,7 @@ The tests need Docker: they start PostgreSQL in a container, and they fail, rath
 
 ## Database
 
-The application uses PostgreSQL through Npgsql. `src/MyApp.Infrastructure/Database/` owns the connection: one `NpgsqlDataSource` for the whole process, a singleton disposed with the host, which holds the connection pool. Every later piece of data access (EF Core, the tenant schema selection) is built on that data source.
+The application uses PostgreSQL through Npgsql. `src/BuildingBlocks/MyApp.BuildingBlocks.Infrastructure/Database/` owns the connection: one `NpgsqlDataSource` for the whole process, a singleton disposed with the host, which holds the connection pool. Every later piece of data access (EF Core, the tenant schema selection) is built on that data source.
 
 ### Connection string
 
@@ -128,7 +145,7 @@ routes.MapGet("/things/{id}", Results<Ok<Thing>, ProblemHttpResult> (int id) =>
 
 The keys of `errors` name the fields as they appear in the request JSON: each segment of the property path follows the API's JSON naming policy (camelCase by default), and dots and indexes are kept (`homeAddress.street`, `lines[1].quantity`). This applies to both sources: the built-in validation, which reports C# property paths, and the `Details` of a validation `Error`, so either form can be used when building one.
 
-Request types are validated with DataAnnotations by the built-in minimal API validation (`AddValidation()`). It is generated at compile time for the request types of the endpoints mapped in the project that calls `AddValidation()`, wherever those types are declared (`MyApp.Contracts` included). A separate project that maps its own endpoints must call `AddValidation()` in its own registration code, or its request types are not validated; the calls add up.
+Request types are validated with DataAnnotations by the built-in minimal API validation (`AddValidation()`). It is generated at compile time for the request types of the endpoints mapped in the project that calls `AddValidation()`, wherever those types are declared (a contracts project included). A separate project that maps its own endpoints must call `AddValidation()` in its own registration code, or its request types are not validated; the calls add up.
 
 Codes are string constants in classes whose names end in `ErrorCodes` (`CommonErrorCodes` and `HttpErrorCodes` to start). Every code is listed in `contract/problem-codes.v1.md`. Codes are only ever added, never renamed. `request_failed` is the generic fallback and may be replaced by a specific code for a status later.
 

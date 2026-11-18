@@ -70,6 +70,39 @@
         { "choice": "azure", "description": "Microsoft Azure." },
         { "choice": "aws", "description": "Amazon Web Services." }
       ]
+    },
+    "clean": {
+      "type": "computed",
+      "value": "(architecture == \"clean\")"
+    },
+    "modular": {
+      "type": "computed",
+      "value": "(architecture == \"modular\")"
     }
-  }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(clean)",
+          "exclude": [
+            "src/Modules/**",
+            "tests/MyApp.Api.Tests/Architecture/Modular/**"
+          ]
+        },
+        {
+          "condition": "(modular)",
+          "exclude": [
+            "src/MyApp.Domain/**",
+            "src/MyApp.Contracts/**",
+            "src/MyApp.Resources/**",
+            "src/MyApp.Application/**",
+            "src/MyApp.Infrastructure/**",
+            "tests/MyApp.Domain.Tests/**",
+            "tests/MyApp.Api.Tests/Architecture/Clean/**"
+          ]
+        }
+      ]
+    }
+  ]
 }

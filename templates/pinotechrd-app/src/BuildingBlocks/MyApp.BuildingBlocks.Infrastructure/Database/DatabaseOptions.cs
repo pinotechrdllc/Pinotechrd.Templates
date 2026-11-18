@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace MyApp.Infrastructure.Database;
+namespace MyApp.BuildingBlocks.Infrastructure.Database;
 
 /// <summary>The connection string read from <see cref="DatabaseRegistration.ConnectionStringKey"/>. It is a secret.</summary>
 internal sealed class DatabaseOptions
