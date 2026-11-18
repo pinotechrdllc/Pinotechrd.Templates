@@ -75,6 +75,8 @@ try {
     Write-Host '== Invalid option is rejected'
     dotnet new pinotechrd-app --name $projectName --output (Join-Path $work 'invalid') --profile unknown --debug:custom-hive $hive *> $null
     if ($LASTEXITCODE -eq 0) { throw 'An invalid --profile value was accepted.' }
+    # The rejection above is the expected outcome; do not let its exit code become the script's.
+    $global:LASTEXITCODE = 0
 
     Write-Host "All $($cases.Count) cases passed."
 }
