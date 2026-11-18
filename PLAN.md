@@ -6,18 +6,19 @@ Working plan for the `pinotechrd-app` template. A task is checked only when it i
 
 ```
 dotnet new pinotechrd-app -n MyApp --architecture clean | modular
+                                   --module       <Name>   (modular only)
                                    --profile      standalone | distributed
                                    --deploy       compose | kubernetes
                                    --iac          none | terraform
                                    --cloud        gcp | azure | aws
 ```
 
-Defaults: `clean`, `standalone`, `compose`, no Terraform, no cloud.
+Defaults: `clean`, module `Core`, `standalone`, `compose`, no Terraform, no cloud.
 
 | Option | What it decides |
 | --- | --- |
 | `--architecture clean` | One bounded context. Projects: Domain, Application, Contracts, Resources, Infrastructure, Api. |
-| `--architecture modular` | Modular monolith. Each module is a bounded context with its own Domain, Application, Infrastructure, Endpoints and a public Contracts project; one Host composes them. `--modules A,B` names the initial modules. |
+| `--architecture modular` | Modular monolith. Each module is a bounded context with its own Domain, Application, Infrastructure, Endpoints and a public Contracts project; one Host composes them. `--module <Name>` names the one module generated (a PascalCase C# identifier, default `Core`); further modules are added later with a script. The template engine cannot generate one module per name of a list (ADR 0006). |
 | `--profile` | How it runs: one instance or several. Independent of the architecture. |
 
 Both architectures share the same building blocks (tenancy, errors, i18n, outbox, cache, telemetry), the same frontend and the same delivery files. Only the layout of the business code differs.
@@ -98,9 +99,11 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] `--architecture` selects content: `clean` keeps the layer projects, `modular` keeps the Host and the building blocks. The database plumbing is the shared building block `BuildingBlocks.Infrastructure`.
 - [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
 - [x] Building blocks, part 2: the web building block (with the API host task below).
-- [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
-- [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
-- [ ] `modular`: every project that maps endpoints calls `AddValidation()` itself (the built-in validation only covers the project that calls it), with a test that an invalid body is rejected in each module.
+- [x] `modular` architecture: Host, module layout (`--module <Name>`, five projects per module), composition of modules through `IModule`, routes under `/api/v1/{module}`.
+- [ ] `modular`: the `Access` and `Sample` modules.
+- [x] Architecture tests for `modular`: a module sees only other modules' `Contracts`; layer rules inside a module; the Host composes exactly the modules on disk.
+- [ ] Architecture tests for `modular`: no cross-module table access (needs persistence, Phase 2).
+- [x] `modular`: every project that maps endpoints calls `AddValidation()` itself (the built-in validation only covers the project that calls it), with a test that an invalid body is rejected in each module.
 - [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.
 - [x] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [x] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
@@ -146,6 +149,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 ## Phase 5. Sample feature in the API
 
 - [ ] `Sample` CRUD: paging, validation, optimistic concurrency, a published event, permissions, tests. It is the model to copy for new features.
+- [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
 - [ ] Phase review against the quality bar (domain model, testing); findings added as tasks.
 
 ## Phase 6. Frontend

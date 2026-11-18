@@ -19,6 +19,8 @@ try
     // endpoints (such as a module's endpoints) must call AddValidation() in its own registration; the calls add up.
     builder.Services.AddValidation();
     builder.Services.AddApiEndpoints(ApiAssembly.Assembly);
+    // The business code: in a modular application, each module with its services and its endpoints.
+    builder.AddBusiness();
     builder.Services.AddHealth();
     builder.Services.AddDatabaseWithReadiness();
     builder.Services.AddOpenApiDocument();

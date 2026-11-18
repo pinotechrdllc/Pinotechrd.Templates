@@ -175,16 +175,39 @@ public class BuildingBlockDependencyTests
             n => ReferenceRules.HasPrefix(n, "Npgsql"));
     }
 
+    // The host and the Endpoints project of a module (its composition root and its endpoints) are the web layer; every
+    // other assembly, a module's Domain, Application or Infrastructure included, must not reference it. The exemption is
+    // by name, so the rule is exact in a clean project (no module), in a modular one and in the template source.
     [Fact]
-    public void OnlyTheHostReferencesTheWebBuildingBlocks()
+    public void OnlyTheHostAndTheEndpointsOfModulesReferenceTheWebBuildingBlocks()
     {
         var violations = SolutionAssemblies
-            .Where(a => ReferenceRules.NameOf(a) != ReferenceRules.NameOf(ReferenceRules.Api)
-                && a != ReferenceRules.BuildingBlocksWeb)
+            .Where(a => a != ReferenceRules.BuildingBlocksWeb
+                && !ModuleAssemblyNames.MayReferenceTheWebBuildingBlocks(ReferenceRules.NameOf(a), ReferenceRules.SolutionRoot))
             .SelectMany(a => ReferenceRules.Violations(a, [ReferenceRules.BuildingBlocksWeb], []))
             .ToList();
 
         ReferenceRules.AssertNone(violations);
+    }
+
+    // Self-test of the exemption above: only the host and a module's Endpoints project are exempt.
+    [Theory]
+    [InlineData("Acme.Api", true)]
+    [InlineData("Acme.Modules.Sales.Endpoints", true)]
+    [InlineData("Acme.Modules.Sales.Application", false)]
+    [InlineData("Acme.Modules.Sales.Infrastructure", false)]
+    [InlineData("Acme.Modules.Sales.Domain", false)]
+    [InlineData("Acme.Modules.Sales.Contracts", false)]
+    [InlineData("Acme.Modules.Endpoints", false)]
+    [InlineData("Acme.Modules.Sales.Endpoints.Extra", false)]
+    [InlineData("Acme.Sales.Endpoints", false)]
+    [InlineData("Acme.Application", false)]
+    [InlineData("Acme.Infrastructure", false)]
+    [InlineData("Acme.BuildingBlocks.Infrastructure", false)]
+    [InlineData("Other.Modules.Sales.Endpoints", false)]
+    public void OnlyTheHostAndModuleEndpointsMayReferenceTheWebBuildingBlocks(string assembly, bool allowed)
+    {
+        Assert.Equal(allowed, ModuleAssemblyNames.MayReferenceTheWebBuildingBlocks(assembly, "Acme"));
     }
 
     // Guards the rule above: the host does reference the web building block, so the checker can see such a reference.

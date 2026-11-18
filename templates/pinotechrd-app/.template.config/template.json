@@ -23,11 +23,13 @@
         { "choice": "modular", "description": "Modular monolith with clean architecture inside each module." }
       ]
     },
-    "modules": {
+    "module": {
       "type": "parameter",
       "datatype": "text",
-      "description": "Comma-separated names of the initial modules. Used only with --architecture modular.",
-      "defaultValue": ""
+      "description": "Name of the first module, used only with --architecture modular (accepted and ignored with clean). Must be a PascalCase C# identifier of ASCII letters and digits (for example Sales or SalesOrders): the template does not validate it, and a name such as Sales-Orders breaks the build. Further modules are added later with a script that a later version of the template provides.",
+      "defaultValue": "Core",
+      "replaces": "MyModule",
+      "fileRename": "MyModule"
     },
     "profile": {
       "type": "parameter",
@@ -87,6 +89,8 @@
           "condition": "(clean)",
           "exclude": [
             "src/Modules/**",
+            "src/MyApp.Api/BusinessComposition.Modular.cs",
+            "tests/MyApp.Modules.MyModule.Tests/**",
             "tests/MyApp.Api.Tests/Architecture/Modular/**"
           ]
         },

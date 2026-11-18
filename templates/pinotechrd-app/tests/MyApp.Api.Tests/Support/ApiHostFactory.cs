@@ -105,7 +105,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
         {
             // The validation source generator only sees the endpoints of the project that calls AddValidation, so
             // the test project registers its own endpoint types the same way the API does for its own.
-            services.AddValidation();
+            services.AddTestAssemblyValidation();
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
             if (!_realDatabaseCheck)
             {

@@ -23,9 +23,20 @@
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Infrastructure/MyApp.BuildingBlocks.Infrastructure.csproj" />
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Web/MyApp.BuildingBlocks.Web.csproj" />
   </Folder>
+<!--#if (modular) -->
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/MyModule/">
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Contracts/MyApp.Modules.MyModule.Contracts.csproj" />
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Domain/MyApp.Modules.MyModule.Domain.csproj" />
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Application/MyApp.Modules.MyModule.Application.csproj" />
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Infrastructure/MyApp.Modules.MyModule.Infrastructure.csproj" />
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Endpoints/MyApp.Modules.MyModule.Endpoints.csproj" />
+  </Folder>
+<!--#endif -->
   <Folder Name="/tests/">
     <Project Path="tests/MyApp.BuildingBlocks.Tests/MyApp.BuildingBlocks.Tests.csproj" />
 <!--#if (modular) -->
+    <Project Path="tests/MyApp.Modules.MyModule.Tests/MyApp.Modules.MyModule.Tests.csproj" />
 <!--#else -->
     <Project Path="tests/MyApp.Domain.Tests/MyApp.Domain.Tests.csproj" />
 <!--#endif -->
