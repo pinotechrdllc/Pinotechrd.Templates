@@ -12,4 +12,26 @@
     <ProjectReference Include="..\BuildingBlocks\MyApp.BuildingBlocks.Web\MyApp.BuildingBlocks.Web.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Emits the OpenAPI document at build time by starting the host without a server; see UpdateContract below. -->
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+  </ItemGroup>
+
+  <!--
+    The OpenAPI document is frozen in contract/openapi.v1.json. It is generated only when the contract is updated:
+      dotnet build src/MyApp.Api -p:UpdateContract=true
+    so a normal build never starts the host and never touches the committed file.
+  -->
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>false</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocuments Condition="'$(UpdateContract)' == 'true'">true</OpenApiGenerateDocuments>
+    <OpenApiDocumentsDirectory>$(BaseIntermediateOutputPath)openapi</OpenApiDocumentsDirectory>
+    <ContractFile>$(MSBuildProjectDirectory)/../../contract/openapi.v1.json</ContractFile>
+  </PropertyGroup>
+
+  <Target Name="CopyOpenApiContract" AfterTargets="GenerateOpenApiDocuments" Condition="'$(UpdateContract)' == 'true'">
+    <Copy SourceFiles="$(OpenApiDocumentsDirectory)/$(MSBuildProjectName).json" DestinationFiles="$(ContractFile)" />
+    <Message Importance="high" Text="OpenAPI contract updated: $([System.IO.Path]::GetFullPath('$(ContractFile)'))" />
+  </Target>
+
 </Project>

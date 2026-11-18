@@ -15,8 +15,8 @@ public static class EndpointRegistration
 
     /// <summary>
     /// Registers as singletons every public, non-abstract, non-generic <see cref="IEndpoint"/> implementation of
-    /// <paramref name="assemblies"/>. An implementation found more than once, in a repeated assembly or a repeated
-    /// call, is registered once.
+    /// <paramref name="assemblies"/>, in ordinal order of their full names. An implementation found more than once, in
+    /// a repeated assembly or a repeated call, is registered once.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="assemblies">The assemblies to scan, for example one per module.</param>
@@ -28,7 +28,10 @@ public static class EndpointRegistration
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(assemblies);
 
-        foreach (var type in assemblies.Distinct().SelectMany(a => a.GetTypes()).Where(IsEndpoint))
+        // Ordered by name, not by GetTypes(), which follows compile order: the mapping order, and with it the order of
+        // the API document, then only changes when the endpoints do.
+        var types = assemblies.Distinct().SelectMany(a => a.GetTypes()).Where(IsEndpoint).OrderBy(t => t.FullName, StringComparer.Ordinal);
+        foreach (var type in types)
         {
             services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IEndpoint), type));
         }

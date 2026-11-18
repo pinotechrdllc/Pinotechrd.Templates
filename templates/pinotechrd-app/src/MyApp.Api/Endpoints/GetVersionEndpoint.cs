@@ -16,6 +16,7 @@ public sealed class GetVersionEndpoint : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder routes) =>
         routes.MapGet("/version", () => TypedResults.Ok(Response))
             .WithName("GetVersion")
+            .WithTags("System")
             .WithSummary("Gets the informational version of the running application.");
 
     private static string ReadVersion()

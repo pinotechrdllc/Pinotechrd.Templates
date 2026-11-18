@@ -1,6 +1,8 @@
 * text=auto
 
 *.sh text eol=lf
+# Generated contracts are compared byte for byte with a fresh generation, which writes LF on every platform.
+/contract/*.json text eol=lf
 
 *.png binary
 *.jpg binary

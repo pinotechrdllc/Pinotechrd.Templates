@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
+using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Problems;
 
@@ -94,18 +95,7 @@ public partial class ProblemCodeCatalogueTests
             .Select(m => (m.Groups["code"].Value.Trim(), m.Groups["status"].Value.Trim(), m.Groups["meaning"].Value.Trim()))];
     }
 
-    private static string SolutionRoot()
-    {
-        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
-        {
-            if (directory.EnumerateFiles("*.slnx").Any() || directory.EnumerateFiles("*.sln").Any())
-            {
-                return directory.FullName;
-            }
-        }
-
-        throw new InvalidOperationException($"No solution file found above '{AppContext.BaseDirectory}'.");
-    }
+    private static string SolutionRoot() => SolutionLocator.SolutionRoot();
 
     private static List<(string Value, string Source)> DeclaredCodes() =>
         [.. SolutionAssemblies()

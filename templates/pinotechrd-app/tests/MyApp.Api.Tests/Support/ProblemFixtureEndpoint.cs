@@ -54,6 +54,22 @@ internal sealed class ProblemFixtureEndpoint : IEndpoint
         group.MapGet("/bad-request/{code:int}", BadRequest);
         group.MapGet("/validation-keys", () => Error.Validation("fixture_keys", "Keys.", PascalKeys).ToProblem());
         group.MapGet("/errors/{kind}", (ErrorKind kind) => ErrorOf(kind).ToProblem());
+
+        // Only here to show how the OpenAPI document treats responses that an endpoint declares itself.
+        // No input: 404, 409 and 500 are documented, 400 is not.
+        group.MapGet("/declared-errors", () => Results.Ok())
+            .WithName("FixtureDeclaredErrors")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+        // A body, with its own 400 that must be kept as it is.
+        group.MapPost("/own-bad-request", (FixtureItem item) => Results.Ok(item))
+            .WithName("FixtureOwnBadRequest")
+            .Produces<FixtureItem>(StatusCodes.Status400BadRequest, "application/json");
+        // No input, but it declares a 400 and a 413 itself, so they are kept although they are not implied.
+        group.MapGet("/own-no-input", () => Results.Ok())
+            .WithName("FixtureOwnNoInput")
+            .Produces<FixtureItem>(StatusCodes.Status400BadRequest, "application/json")
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
     }
 
     public static readonly IReadOnlyDictionary<string, string[]> PascalKeys = new Dictionary<string, string[]>
