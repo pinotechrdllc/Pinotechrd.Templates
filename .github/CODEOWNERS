@@ -1,0 +1,8 @@
+# Every change needs a review from a maintainer.
+* @pinotechrd
+
+# Build, release and dependency configuration decide what gets published to nuget.org.
+/.github/ @pinotechrd
+/scripts/ @pinotechrd
+/Pinotechrd.Templates.csproj @pinotechrd
+/global.json @pinotechrd
