@@ -35,7 +35,7 @@ internal sealed class DatabaseOptionsValidator : IValidateOptions<DatabaseOption
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(
                 $"{DatabaseRegistration.ConnectionStringKey} is not a valid PostgreSQL connection string: it must be a list of "
-                + "Npgsql 'Keyword=value' pairs with a Host, such as 'Host=localhost;Database=app;Username=app;Password=...'. "
+                + "Npgsql 'Keyword=value' pairs with a Host, such as 'Host=127.0.0.1;Database=app;Username=app;Password=...'. "
                 + "The value is not shown because it is a secret.");
     }
 

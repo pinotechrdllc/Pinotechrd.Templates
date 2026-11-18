@@ -11,7 +11,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
 {
     private const string Base = ProblemFixtureEndpoint.Base;
 
-    // Criteria 15 and 16. Breaks if routing runs outside the exception handler (the ambiguous match escapes) or the
+    // Breaks if routing runs outside the exception handler (the ambiguous match escapes) or the
     // developer exception page writes its own body.
     [Theory]
     [InlineData("Development")]
@@ -31,7 +31,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.DoesNotContain("duplicate", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Criterion 16. Breaks if the exception member is left in the document.
+    // Breaks if the exception member is left in the document.
     [Theory]
     [InlineData("Development")]
     [InlineData("Production")]
@@ -47,7 +47,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.DoesNotContain(ProblemFixtureEndpoint.Secret, body.GetRawText(), StringComparison.Ordinal);
     }
 
-    // Criterion 17. Breaks if the status-to-code table loses 408 or 413 or the handler ignores the exception status.
+    // Breaks if the status-to-code table loses 408 or 413 or the handler ignores the exception status.
     [Theory]
     [InlineData(413, "payload_too_large")]
     [InlineData(408, "request_timeout")]
@@ -60,7 +60,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         await ProblemAssert.IsProblemAsync(response, status, code);
     }
 
-    // Criterion 17. Breaks if a body-less error status without a specific code is left empty or gets another code.
+    // Breaks if a body-less error status without a specific code is left empty or gets another code.
     [Theory]
     [InlineData(418)]
     [InlineData(503)]
@@ -73,7 +73,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         await ProblemAssert.IsProblemAsync(response, status, "request_failed");
     }
 
-    // Criterion 18. Breaks if the writer declines requests whose Accept header excludes JSON.
+    // Breaks if the writer declines requests whose Accept header excludes JSON.
     [Fact]
     public async Task ReturnedErrorWithAcceptHtmlStillAnswersProblemJsonWithCodeDetailAndTraceId()
     {
@@ -99,7 +99,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         await ProblemAssert.IsProblemAsync(response, 404, "not_found");
     }
 
-    // Criterion 19. Breaks if 422 reports the RFC 4918 title or type instead of RFC 9110.
+    // Breaks if 422 reports the RFC 4918 title or type instead of RFC 9110.
     [Fact]
     public async Task FailureErrorAnswers422WithTheRfc9110TitleAndType()
     {
@@ -112,7 +112,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.Equal("https://www.rfc-editor.org/rfc/rfc9110#section-15.5.21", body.GetProperty("type").GetString());
     }
 
-    // Criterion 20, built-in validation. Breaks if error keys keep the C# property names.
+    // Built-in validation. Breaks if error keys keep the C# property names.
     [Fact]
     public async Task BuiltInValidationNamesFieldsAsInTheRequestJson()
     {
@@ -129,7 +129,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.Equal(["firstName", "homeAddress.street", "others[1].street"], keys);
     }
 
-    // Criterion 20, Error details. Breaks if keys are written as given or colliding keys overwrite each other.
+    // Error details. Breaks if keys are written as given or colliding keys overwrite each other.
     [Fact]
     public async Task ValidationErrorKeysAreConvertedAndCollidingKeysAreMerged()
     {
@@ -146,7 +146,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.Equal("third", errors.GetProperty("lines[1].quantity")[0].GetString());
     }
 
-    // Criterion 21. Breaks if the catalogue wording drops the shape case.
+    // Breaks if the catalogue wording drops the shape case.
     [Fact]
     public void InvalidJsonCatalogueRowMentionsTheShapeOfTheBody()
     {
@@ -155,7 +155,7 @@ public class ProblemContractTests(ApiHostFactory factory) : IClassFixture<ApiHos
         Assert.Contains("shape", row.Meaning, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Criterion 17, catalogue side. Breaks if the new codes are not listed with their status.
+    // Catalogue side. Breaks if the new codes are not listed with their status.
     [Theory]
     [InlineData("payload_too_large", "413")]
     [InlineData("request_timeout", "408")]

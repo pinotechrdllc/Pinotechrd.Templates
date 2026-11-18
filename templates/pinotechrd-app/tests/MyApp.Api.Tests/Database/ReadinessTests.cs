@@ -10,7 +10,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criteria 6 to 8: readiness reports the database, liveness does not depend on it, and neither response nor log
+// Readiness reports the database, liveness does not depend on it, and neither response nor log
 // holds a secret. Needs Docker (the shared PostgreSQL container).
 [Collection(PostgresContainer.Name)]
 public class ReadinessTests(PostgresFixture postgres)

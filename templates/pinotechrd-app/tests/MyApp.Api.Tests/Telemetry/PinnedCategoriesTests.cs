@@ -5,7 +5,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 16: the framework categories that write a header value, the query string or the client address stay at
+// The framework categories that write a header value, the query string or the client address stay at
 // Warning when a parent category or the default is raised, and change only when named exactly. Every expectation is
 // taken from the public list, not from a copy of it.
 public class PinnedCategoriesTests

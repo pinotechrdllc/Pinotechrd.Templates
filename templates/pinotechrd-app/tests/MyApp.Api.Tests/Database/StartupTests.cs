@@ -6,7 +6,7 @@ using MyApp.BuildingBlocks.Infrastructure.Database;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criteria 4 and 5: the connection string is checked when the host starts, without a connection, and the check never
+// The connection string is checked when the host starts, without a connection, and the check never
 // repeats the value. None of these tests needs a database or Docker.
 public class StartupTests
 {

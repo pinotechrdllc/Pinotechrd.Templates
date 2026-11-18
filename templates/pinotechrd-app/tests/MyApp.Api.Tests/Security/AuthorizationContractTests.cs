@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criterion 3 of the authentication change: an operation declares 401 and 403 exactly when its endpoint requires authorization.
+// An operation declares 401 and 403 exactly when its endpoint requires authorization.
 public class AuthorizationContractTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
 {
     private static readonly string[] Statuses = ["401", "403"];

@@ -28,7 +28,8 @@ try
     var app = builder.Build();
     stopping = app.Lifetime.ApplicationStopping;
 
-    // Forwarded headers, request logging, security headers, CORS, error handling, routing and rate limiting, in that order.
+    // Forwarded headers, request logging, security headers, CORS, error handling, routing, rate limiting, then
+    // authentication and authorization when their services are registered, in that order.
     app.UseApiPipeline();
     app.MapHealth();
     app.MapApiEndpoints();

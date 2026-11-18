@@ -1,10 +1,10 @@
 {
   "$schema": "http://json.schemastore.org/template",
   "author": "Pinotechrd",
-  "classifications": [ "Web", "API", "Vue", "Multi-tenant" ],
+  "classifications": [ "Web", "API" ],
   "identity": "Pinotechrd.App",
-  "name": "Pinotechrd application (API and Vue)",
-  "description": "A .NET API and a Vue frontend with security, multi-tenancy and i18n built in.",
+  "name": "Pinotechrd application",
+  "description": "A .NET 10 API on PostgreSQL, organized as clean architecture layers or as a modular monolith: versioned minimal API endpoints, problem details errors with stable codes, a frozen OpenAPI contract, health probes, security headers, CORS, rate limiting, structured logs and OpenTelemetry, with tests. Authentication, multi-tenancy, i18n and the Vue frontend are planned and not generated yet.",
   "shortName": "pinotechrd-app",
   "sourceName": "MyApp",
   "preferNameDirectory": true,
@@ -34,7 +34,7 @@
     "profile": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "How the application runs.",
+      "description": "How the application runs. Planned: accepted, but it changes nothing yet.",
       "defaultValue": "standalone",
       "choices": [
         { "choice": "standalone", "description": "One instance. Needs only PostgreSQL." },
@@ -44,7 +44,7 @@
     "deploy": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "Deployment files to include.",
+      "description": "Deployment files to include. Planned: accepted, but it changes nothing yet.",
       "defaultValue": "compose",
       "choices": [
         { "choice": "compose", "description": "Docker Compose for a single host." },
@@ -54,7 +54,7 @@
     "iac": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "Infrastructure as code to include.",
+      "description": "Infrastructure as code to include. Planned: accepted, but it changes nothing yet.",
       "defaultValue": "none",
       "choices": [
         { "choice": "none", "description": "No infrastructure code." },
@@ -64,7 +64,7 @@
     "cloud": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "Cloud provider for the infrastructure code. Used only with --iac terraform.",
+      "description": "Cloud provider for the infrastructure code. Used only with --iac terraform. Planned: accepted, but it changes nothing yet.",
       "defaultValue": "none",
       "choices": [
         { "choice": "none", "description": "No cloud provider." },
@@ -72,6 +72,13 @@
         { "choice": "azure", "description": "Microsoft Azure." },
         { "choice": "aws", "description": "Amazon Web Services." }
       ]
+    },
+    "httpPort": {
+      "type": "generated",
+      "generator": "port",
+      "parameters": { "low": 5000, "high": 5300 },
+      "replaces": "5180",
+      "description": "The HTTP port of the development launch profile (src/MyApp.Api/Properties/launchSettings.json), chosen when the project is generated."
     },
     "clean": {
       "type": "computed",
@@ -102,6 +109,7 @@
             "src/MyApp.Resources/**",
             "src/MyApp.Application/**",
             "src/MyApp.Infrastructure/**",
+            "src/MyApp.Api/BusinessComposition.Clean.cs",
             "tests/MyApp.Domain.Tests/**",
             "tests/MyApp.Api.Tests/Architecture/Clean/**"
           ]

@@ -8,7 +8,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criteria 18 and 20: a failure after the response has started, and the mechanics that the rule on routes relies on.
+// A failure after the response has started, and the mechanics that the rule on routes relies on.
 public class CompletionEventEdgeCaseTests
 {
     private static ApiHostFactory WithFixture(ApiHostFactory factory) =>

@@ -6,7 +6,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criteria 17 and 18: the readiness bound holds when the server stalls after a connection is pooled, one connection
+// The readiness bound holds when the server stalls after a connection is pooled, one connection
 // attempt at a time is in flight against a server that does not answer, and readiness recovers. The stall is made with
 // a proxy between the host and the shared container that stops forwarding (the container is not touched). Needs Docker.
 [Collection(PostgresContainer.Name)]

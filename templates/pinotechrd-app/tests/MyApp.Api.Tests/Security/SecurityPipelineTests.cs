@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criterion 22: the pieces hold together in the one pipeline of the real Program.
+// The pieces hold together in the one pipeline of the real Program.
 public class SecurityPipelineTests
 {
     private const string Listed = "https://app.example.com";

@@ -5,7 +5,7 @@ using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
-// Criteria 20 and 21: what the application sets on the connection, read from the registered data source's own
+// What the application sets on the connection, read from the registered data source's own
 // (sanitized) connection string. No database is needed to resolve it, so these run without Docker.
 public class ConnectionSettingsTests
 {
@@ -62,7 +62,7 @@ public class ConnectionSettingsTests
     }
 }
 
-// Criterion 20 on an opened connection. Needs Docker.
+// The same settings on an opened connection. Needs Docker.
 [Collection(PostgresContainer.Name)]
 public class OpenedConnectionSettingsTests(PostgresFixture postgres)
 {

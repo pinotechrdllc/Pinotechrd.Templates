@@ -34,7 +34,7 @@ Both architectures share the same building blocks (tenancy, errors, i18n, outbox
 - First cloud provider for Terraform: GCP. Azure and AWS come later behind the same `--cloud` option.
 - MIT license for this repository and for the generated project.
 - PWA support is included by default.
-- Shared building blocks are separate projects (`BuildingBlocks.Domain`, `.Application`, `.Web`, later `.Infrastructure`) at the same path in both architectures ([ADR 0005](docs/adr/0005-shared-building-blocks.md)).
+- Shared building blocks are separate projects (`BuildingBlocks.Domain`, `.Application`, `.Infrastructure`, `.Web`) at the same path in both architectures ([ADR 0005](docs/adr/0005-shared-building-blocks.md)).
 - One error model: a `Result` for every expected failure, exceptions only for defects ([ADR 0004](docs/adr/0004-result-for-expected-failures.md)). Use cases are plain `*Handler` classes with `HandleAsync`.
 - The generated project targets .NET 10, the LTS release and the one `Pinotechrd.Security` targets.
 - Every profile: access token in memory and refresh token in an `HttpOnly` cookie, refresh tokens stored in the database, migrations as a separate deploy step, background work safe for several instances.
@@ -100,7 +100,6 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
 - [x] Building blocks, part 2: the web building block (with the API host task below).
 - [x] `modular` architecture: Host, module layout (`--module <Name>`, five projects per module), composition of modules through `IModule`, routes under `/api/v1/{module}`.
-- [ ] `modular`: the `Access` and `Sample` modules.
 - [x] Architecture tests for `modular`: a module sees only other modules' `Contracts`; layer rules inside a module; the Host composes exactly the modules on disk.
 - [ ] Architecture tests for `modular`: no cross-module table access (needs persistence, Phase 2).
 - [x] `modular`: every project that maps endpoints calls `AddValidation()` itself (the built-in validation only covers the project that calls it), with a test that an invalid body is rejected in each module.
@@ -111,16 +110,32 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Cross-cutting: security headers, CORS, rate limiting, forwarded headers trusted only from configured proxies, settings validated at start, no secrets in `appsettings.json`. The pipeline order, authentication included, is fixed inside the web building block.
 - [x] Logging and telemetry: Serilog and OpenTelemetry. No header, query string, body or client address in logs or traces; routes carry opaque identifiers only.
 - [x] PostgreSQL connection that fails fast when it is not configured, the readiness check, and the integration test fixture with Testcontainers. The tests need Docker.
-- [ ] Phase review against the quality bar (architecture, API, operability); findings added as tasks.
+- [x] Phase review against the quality bar (architecture, API, operability); findings added as tasks.
+- [ ] Inbound request timeout (`AddRequestTimeouts`) and an explicit request body size limit, documented in the README.
+- [ ] One style for settings validation (today three: DataAnnotations with `IValidatableObject`, `IValidateOptions` classes, an eager exception in the log levels), recorded in an ADR or the README.
+- [ ] Move `UseApiPipeline` out of the security registration into its own class (it composes problems, telemetry and auth); one receiver for registration methods (`IHostApplicationBuilder` or `IServiceCollection`); call `AddHealth()` once.
+- [ ] Trim public surface used only by tests: `UseProblems`, the two-argument `BootstrapLogger.WriteFatal`, the CORS constants.
+- [ ] Test that runs the API as a real process with the README's local settings (launch profile, user secrets, local PostgreSQL) and probes live, ready, version and the OpenAPI document.
+- [ ] Replace wall-clock bounds in the start-up and readiness tests, and the busy-wait in the telemetry capture.
+- [ ] `BuildingBlocks.Tests` covers only Domain and Application: add tests for the Infrastructure and Web building blocks.
+- [ ] List the tests that read source text and state the policy (no new ones).
 
 ## Phase 2. Security and tenancy
 
+- [ ] One shared test host base for the API tests (the three factories will each need the JWT settings).
+- [ ] An ordered extension point after authentication in the pipeline, for tenant resolution, the per-user limiter and the user and tenant on the log event.
+- [ ] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
+- [ ] The security DbContext uses the one shared data source, not a data source of its own.
 - [ ] Wire `Pinotechrd.Security`: `AddPinotechrdSecurity`, `UseTenantResolution`, the DbContext on `PinotechrdSecurityDbContext`.
+- [ ] The `search_path` interceptor tolerates the tenant-less readiness probe, and the tracing filter that matches the text `SELECT 1` no longer hides application queries.
 - [ ] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
+- [ ] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
+- [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
 - [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
+- [ ] `modular`: the `Access` module, home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
 - [ ] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
 - [ ] Tenants endpoints: create, activate, suspend.
@@ -148,8 +163,8 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 ## Phase 5. Sample feature in the API
 
+- [ ] `modular`: the `Sample` module, home of the sample feature.
 - [ ] `Sample` CRUD: paging, validation, optimistic concurrency, a published event, permissions, tests. It is the model to copy for new features.
-- [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
 - [ ] Phase review against the quality bar (domain model, testing); findings added as tasks.
 
 ## Phase 6. Frontend
@@ -192,10 +207,26 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 - [ ] `template.json` symbols for `profile`, `deploy`, `iac` and `cloud`, with conditional content.
 - [ ] Harness matrix: `clean` and `modular`, `standalone` and `distributed`, `compose` and `kubernetes`.
-- [ ] Documentation of the generated project: README, ADRs, `AGENTS.md`, `CLAUDE.md`.
+- [ ] Documentation of the generated project: README and ADRs (the agent files are Phase 9b).
 - [ ] `scripts/new-module.ps1` to scaffold a feature (`clean`) or a whole module (`modular`) in the API and the web.
 - [ ] Guide to move a `clean` project to `modular` when its domain needs it.
 - [ ] Pack and publish to nuget.org with Trusted Publishing; changelog and versioning.
+
+## Phase 9b. Agent harness of the generated project
+
+Tool-neutral base with a Claude Code layer on top. Researched on 2026-11-18; each item says its basis: E (study with data), V (vendor documentation), J (judgement). Most studies are preprints.
+
+- [ ] ADR: the agent harness and its sources, with what could not be verified.
+- [ ] `AGENTS.md` under 100 lines: the verify command, conventions and non-obvious rules; no repository overview (E: context files did not raise success and cost over 20% more; overviews did not help. V: read by more than twenty tools).
+- [ ] `CLAUDE.md` that imports `AGENTS.md` and adds only Claude-specific notes (V: when `CLAUDE.md` exists, `AGENTS.md` is not read on its own).
+- [ ] One verify script (`scripts/verify.ps1` and `verify.sh`) called by the hook, CI, a git pre-push hook and people (J).
+- [ ] `.claude/agents`: a read-only `code-reviewer` and a `test-writer` that never edits production code; a `security-reviewer` on demand (E, weak: tests written after faulty code catch about 14% of faults against 25% for independent ones; a separate evaluator helps on hard tasks). No architecture-validator agent: the rules are architecture tests (J; no study compares the two).
+- [ ] `.claude/skills`: add an endpoint, add a module, add a migration, regenerate the contract; release and migration not invocable by the model (V for the format; J for the set).
+- [ ] `.claude/settings.json`: deny reads of `.env` and secrets; a Stop hook that runs verify with a loop guard; a PreToolUse block on the frozen contract and the lock files; commands that work on Windows and Linux (V, J).
+- [ ] Path-scoped rules for backend, frontend and tests (V).
+- [ ] What the template never ships: MCP servers or their auto-approval, auto-allowed shell commands, environment overrides, third-party skills or plugins, hooks that fetch remote scripts (E: published attacks through repository-supplied configuration).
+- [ ] Optional agent review workflow on pull requests, capped in turns, not on forks, told to skip what the deterministic checks already cover (V; E: about a third of automated review comments are accepted).
+- [ ] Harness: the generated project contains the harness files, the hook commands run on both platforms, and no forbidden setting is present.
 
 ## Phase 10. Adoption
 

@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 10 to 12 of the HTTP security change, plus the grouping of IPv6 clients documented in the README.
+// The rate limit, plus the grouping of IPv6 clients documented in the README.
 public class RateLimitingTests
 {
     // Breaks when the limit is not applied, is applied one request late, or the answer is not the documented problem.

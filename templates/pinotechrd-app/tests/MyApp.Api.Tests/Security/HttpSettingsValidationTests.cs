@@ -3,7 +3,7 @@ using MyApp.Api.Tests.Support;
 
 namespace MyApp.Api.Tests.Security;
 
-// Criteria 17 to 20 of the HTTP security change: invalid settings stop the host with a message that names the setting.
+// Invalid settings stop the host with a message that names the setting.
 public class HttpSettingsValidationTests
 {
     // Breaks when a permit limit below one or above 10,000 is accepted (the window is the longest allowed, so only the limit is at fault).

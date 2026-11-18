@@ -6,7 +6,7 @@ using Serilog.Events;
 
 namespace MyApp.Api.Tests.Telemetry;
 
-// Criterion 12: logging and telemetry cost nothing when no collector is configured, and do not hurt requests when the
+// Logging and telemetry cost nothing when no collector is configured, and do not hurt requests when the
 // configured one is unreachable.
 public class HostLifetimeTelemetryTests
 {
