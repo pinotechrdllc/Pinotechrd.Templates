@@ -24,6 +24,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
 
     private readonly string _environment;
     private readonly Dictionary<string, string?> _settings = [];
+    private readonly Dictionary<string, string> _earlySettings = [];
     private readonly List<Action<IServiceCollection>> _services = [];
 
     public ApiHostFactory()
@@ -43,6 +44,18 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
         return this;
     }
 
+    /// <summary>
+    /// Sets a configuration value that <c>Program.cs</c> can already read while it builds the host, before any service
+    /// is registered (for example <c>Logging:LogLevel:Default</c> or <c>OTEL_EXPORTER_OTLP_ENDPOINT</c>). A value from
+    /// <see cref="WithSetting"/> is only added when the host is built, so code that reads the configuration eagerly does
+    /// not see it. This one does not touch the process environment, so parallel hosts do not share it.
+    /// </summary>
+    public ApiHostFactory WithEarlySetting(string key, string value)
+    {
+        _earlySettings[key] = value;
+        return this;
+    }
+
     /// <summary>Adds services to this host only, for example an authentication scheme.</summary>
     public ApiHostFactory WithServices(Action<IServiceCollection> configure)
     {
@@ -53,6 +66,11 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(_environment);
+        foreach (var (key, value) in _earlySettings)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(_settings));
         builder.ConfigureTestServices(services =>
         {

@@ -28,7 +28,9 @@ internal sealed partial class ProblemExceptionHandler(ILogger<ProblemExceptionHa
                 code = HttpErrorCodes.InvalidJson;
             }
 
-            LogBadRequest(logger, status, exception);
+            // Without the exception: its message quotes the value that could not be bound, which may come from the
+            // query string or a header and carry a token. The request's completion event records the status.
+            LogBadRequest(logger, status);
         }
         else
         {
@@ -42,7 +44,7 @@ internal sealed partial class ProblemExceptionHandler(ILogger<ProblemExceptionHa
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "The request could not be bound and is answered with status {Status}.")]
-    private static partial void LogBadRequest(ILogger logger, int status, Exception exception);
+    private static partial void LogBadRequest(ILogger logger, int status);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An unhandled exception occurred while processing the request.")]
     private static partial void LogUnhandled(ILogger logger, Exception exception);

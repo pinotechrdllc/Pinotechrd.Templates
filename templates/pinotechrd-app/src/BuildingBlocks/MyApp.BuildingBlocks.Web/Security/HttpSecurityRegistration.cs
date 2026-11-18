@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Web.Problems;
+using MyApp.BuildingBlocks.Web.Telemetry;
 
 namespace MyApp.BuildingBlocks.Web.Security;
 
@@ -87,6 +88,12 @@ public static class HttpSecurityRegistration
     /// <list type="number">
     /// <item><description>Forwarded headers, only when a proxy is configured: everything after it, including the
     /// HSTS decision, the logs and the rate limiter, must see the real client address and scheme.</description></item>
+    /// <item><description>The request completion event (<see cref="RequestLogging"/>), only when
+    /// <see cref="TelemetryRegistration.AddTelemetry"/> registered its services. It wraps everything after it, so it
+    /// times the whole request and sees the final status, the 500 written by the exception handler included: the
+    /// exception is logged once, by the handler, and the completion event of that request is at Error. It records no
+    /// header, query string or body. Right after routing, a step records the matched route template for it, because the
+    /// exception handler clears the endpoint before it writes the 500.</description></item>
     /// <item><description>Security headers, written when the response starts: the error responses that the
     /// exception handler writes after clearing the response get them too, and so do CORS preflight answers.</description></item>
     /// <item><description>CORS, only when an origin is listed: it answers preflight requests itself and writes its
@@ -130,6 +137,12 @@ public static class HttpSecurityRegistration
             app.UseForwardedHeaders();
         }
 
+        var requestLogging = RequestLogging.IsRegistered(services);
+        if (requestLogging)
+        {
+            RequestLogging.UseCompletionEvent(app);
+        }
+
         var corsEnabled = cors.AllowedOrigins.Count > 0;
         app.Use(next => context =>
         {
@@ -143,6 +156,11 @@ public static class HttpSecurityRegistration
         }
 
         app.UseProblems();
+        if (requestLogging)
+        {
+            RequestLogging.UseRouteCapture(app);
+        }
+
         app.UseRateLimiter();
 
         var registered = services.GetService<IServiceProviderIsService>();
