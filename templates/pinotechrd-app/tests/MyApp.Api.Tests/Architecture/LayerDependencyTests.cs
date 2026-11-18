@@ -5,17 +5,50 @@ namespace MyApp.Api.Tests.Architecture;
 public class LayerDependencyTests
 {
     private static IEnumerable<Assembly> AllExcept(params Assembly[] allowed) =>
-        ReferenceRules.AllLayers.Where(a => !allowed.Contains(a));
+        ReferenceRules.AllSolutionAssemblies.Where(a => !allowed.Contains(a));
 
     [Fact]
-    public void DomainReferencesNoSolutionAssemblyAndOnlyTheBaseClassLibrary()
+    public void DomainReferencesOnlyTheDomainBuildingBlocksAmongSolutionAssembliesAndOnlyTheBaseClassLibrary()
     {
         var violations = ReferenceRules.Violations(
                 ReferenceRules.Domain,
-                AllExcept(ReferenceRules.Domain),
+                AllExcept(ReferenceRules.Domain, ReferenceRules.BuildingBlocksDomain),
                 ReferenceRules.FrameworkPrefixesForbiddenInDomain)
-            .Concat(ReferenceRules.NonBaseClassLibraryViolations(ReferenceRules.Domain))
+            .Concat(ReferenceRules.NonBaseClassLibraryViolations(ReferenceRules.Domain, ReferenceRules.BuildingBlocksDomain))
             .Distinct()
+            .ToList();
+
+        ReferenceRules.AssertNone(violations);
+    }
+
+    [Fact]
+    public void DomainBuildingBlocksReferenceNoOtherSolutionAssemblyAndOnlyTheBaseClassLibrary()
+    {
+        var violations = ReferenceRules.Violations(
+                ReferenceRules.BuildingBlocksDomain,
+                AllExcept(ReferenceRules.BuildingBlocksDomain),
+                ReferenceRules.FrameworkPrefixesForbiddenInDomain)
+            .Concat(ReferenceRules.NonBaseClassLibraryViolations(ReferenceRules.BuildingBlocksDomain))
+            .Distinct()
+            .ToList();
+
+        ReferenceRules.AssertNone(violations);
+    }
+
+    [Fact]
+    public void ApplicationBuildingBlocksReferenceOnlyTheDomainBuildingBlocksAmongSolutionAssembliesAndNoWebOrDataFramework()
+    {
+        ReferenceRules.AssertNone(ReferenceRules.Violations(
+            ReferenceRules.BuildingBlocksApplication,
+            AllExcept(ReferenceRules.BuildingBlocksApplication, ReferenceRules.BuildingBlocksDomain),
+            ReferenceRules.FrameworkPrefixesForbiddenInApplication));
+    }
+
+    [Fact]
+    public void NoBuildingBlockReferencesABusinessAssembly()
+    {
+        var violations = ReferenceRules.BuildingBlocks
+            .SelectMany(bb => ReferenceRules.Violations(bb, ReferenceRules.AllLayers, []))
             .ToList();
 
         ReferenceRules.AssertNone(violations);
@@ -36,11 +69,17 @@ public class LayerDependencyTests
     }
 
     [Fact]
-    public void ApplicationReferencesOnlyDomainContractsAndResourcesAndNoWebOrDataFramework()
+    public void ApplicationReferencesOnlyDomainContractsResourcesAndBuildingBlocksAndNoWebOrDataFramework()
     {
         ReferenceRules.AssertNone(ReferenceRules.Violations(
             ReferenceRules.Application,
-            AllExcept(ReferenceRules.Application, ReferenceRules.Domain, ReferenceRules.Contracts, ReferenceRules.Resources),
+            AllExcept(
+                ReferenceRules.Application,
+                ReferenceRules.Domain,
+                ReferenceRules.Contracts,
+                ReferenceRules.Resources,
+                ReferenceRules.BuildingBlocksApplication,
+                ReferenceRules.BuildingBlocksDomain),
             ReferenceRules.FrameworkPrefixesForbiddenInApplication));
     }
 
@@ -56,6 +95,8 @@ public class LayerDependencyTests
     {
         var markers = new (string Layer, Type Marker)[]
         {
+            ("BuildingBlocks.Domain", typeof(MyApp.BuildingBlocks.Domain.BuildingBlocksDomainAssembly)),
+            ("BuildingBlocks.Application", typeof(MyApp.BuildingBlocks.Application.BuildingBlocksApplicationAssembly)),
             ("Domain", typeof(MyApp.Domain.DomainAssembly)),
             ("Application", typeof(MyApp.Application.ApplicationAssembly)),
             ("Contracts", typeof(MyApp.Contracts.ContractsAssembly)),
@@ -72,7 +113,7 @@ public class LayerDependencyTests
                 $"Marker '{marker.Name}' lives in assembly '{name}', expected an assembly ending in '.{layer}'.");
         }
 
-        Assert.Equal(6, markers.Select(m => m.Marker.Assembly).Distinct().Count());
+        Assert.Equal(8, markers.Select(m => m.Marker.Assembly).Distinct().Count());
     }
 
     [Fact]
@@ -88,6 +129,20 @@ public class LayerDependencyTests
             Assert.Contains(ReferenceRules.NameOf(ReferenceRules.Api), m);
             Assert.Contains("Microsoft.AspNetCore", m);
         });
+    }
+
+    [Fact]
+    public void NonBaseClassLibraryCheckReportsASolutionReferenceUnlessItIsAllowed()
+    {
+        // The application building blocks really use the DI abstractions, so they must be reported
+        // unless allowed, and an allowed solution assembly must be exempt.
+        var reported = ReferenceRules.NonBaseClassLibraryViolations(ReferenceRules.BuildingBlocksApplication);
+
+        Assert.Contains(reported, m => m.Contains("Microsoft.Extensions.DependencyInjection.Abstractions", StringComparison.Ordinal));
+
+        var exempt = ReferenceRules.NonBaseClassLibraryViolations(
+            ReferenceRules.Application, ReferenceRules.BuildingBlocksApplication, ReferenceRules.BuildingBlocksDomain);
+        Assert.DoesNotContain(exempt, m => m.Contains(ReferenceRules.NameOf(ReferenceRules.BuildingBlocksApplication), StringComparison.Ordinal));
     }
 
     [Theory]

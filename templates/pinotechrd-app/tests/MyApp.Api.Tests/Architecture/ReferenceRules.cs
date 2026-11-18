@@ -32,6 +32,10 @@ internal static class ReferenceRules
 
     public static readonly string[] BaseClassLibraryPrefixes = ["System", "netstandard", "mscorlib"];
 
+    public static Assembly BuildingBlocksDomain => MyApp.BuildingBlocks.Domain.BuildingBlocksDomainAssembly.Assembly;
+
+    public static Assembly BuildingBlocksApplication => MyApp.BuildingBlocks.Application.BuildingBlocksApplicationAssembly.Assembly;
+
     public static Assembly Domain => MyApp.Domain.DomainAssembly.Assembly;
 
     public static Assembly Application => MyApp.Application.ApplicationAssembly.Assembly;
@@ -44,7 +48,13 @@ internal static class ReferenceRules
 
     public static Assembly Api => MyApp.Api.ApiAssembly.Assembly;
 
+    /// <summary>The business assemblies: every assembly of the solution that is not a building block.</summary>
     public static IReadOnlyList<Assembly> AllLayers => [Domain, Application, Contracts, Resources, Infrastructure, Api];
+
+    public static IReadOnlyList<Assembly> BuildingBlocks => [BuildingBlocksDomain, BuildingBlocksApplication];
+
+    /// <summary>Every assembly of the solution that a rule may name: the business assemblies and the building blocks.</summary>
+    public static IReadOnlyList<Assembly> AllSolutionAssemblies => [.. AllLayers, .. BuildingBlocks];
 
     public static string NameOf(Assembly assembly) => assembly.GetName().Name!;
 
@@ -81,11 +91,19 @@ internal static class ReferenceRules
         return messages;
     }
 
-    /// <summary>Returns a message for every reference of <paramref name="assembly"/> outside the base class library.</summary>
-    public static IReadOnlyList<string> NonBaseClassLibraryViolations(Assembly assembly) =>
-        [.. ReferencedNames(assembly)
-            .Where(r => !IsBaseClassLibrary(r))
+    /// <summary>
+    /// Returns a message for every reference of <paramref name="assembly"/> outside the base class library,
+    /// except the solution assemblies in <paramref name="allowedSolutionAssemblies"/>.
+    /// </summary>
+    public static IReadOnlyList<string> NonBaseClassLibraryViolations(
+        Assembly assembly,
+        params Assembly[] allowedSolutionAssemblies)
+    {
+        var allowed = allowedSolutionAssemblies.Select(NameOf).ToHashSet(StringComparer.Ordinal);
+        return [.. ReferencedNames(assembly)
+            .Where(r => !IsBaseClassLibrary(r) && !allowed.Contains(r))
             .Select(r => $"Assembly '{NameOf(assembly)}' must not reference '{r}' (only the base class library is allowed).")];
+    }
 
     public static void AssertNone(IReadOnlyList<string> violations) =>
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
