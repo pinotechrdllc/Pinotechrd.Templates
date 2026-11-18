@@ -122,6 +122,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 ## Phase 2. Security and tenancy
 
+- [x] Spike: `Pinotechrd.Security` on tenant schemas selected by `search_path`. Result: works with a model override in the template, an interceptor on one shared data source and a refresh store that consumes tokens atomically; ten library gaps recorded, see [ADR 0008](docs/adr/0008-security-library-with-tenant-schemas.md).
 - [ ] One shared test host base for the API tests (the three factories will each need the JWT settings).
 - [ ] An ordered extension point after authentication in the pipeline, for tenant resolution, the per-user limiter and the user and tenant on the log event.
 - [ ] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
