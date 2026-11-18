@@ -5,29 +5,36 @@ Working plan for the `pinotechrd-app` template. A task is checked only when it i
 ## Target
 
 ```
-dotnet new pinotechrd-app -n MyApp --profile standalone | distributed
-                                   --deploy  compose | kubernetes
-                                   --iac     none | terraform
-                                   --cloud   gcp | azure | aws
+dotnet new pinotechrd-app -n MyApp --architecture clean | modular
+                                   --profile      standalone | distributed
+                                   --deploy       compose | kubernetes
+                                   --iac          none | terraform
+                                   --cloud        gcp | azure | aws
 ```
 
-Defaults: `standalone`, `compose`, no Terraform, no cloud.
+Defaults: `clean`, `standalone`, `compose`, no Terraform, no cloud.
+
+| Option | What it decides |
+| --- | --- |
+| `--architecture clean` | One bounded context. Projects: Domain, Application, Contracts, Resources, Infrastructure, Api. |
+| `--architecture modular` | Modular monolith. Each module is a bounded context with its own Domain, Application, Infrastructure, Endpoints and a public Contracts project; one Host composes them. `--modules A,B` names the initial modules. |
+| `--profile` | How it runs: one instance or several. Independent of the architecture. |
+
+Both architectures share the same building blocks (tenancy, errors, i18n, outbox, cache, telemetry), the same frontend and the same delivery files. Only the layout of the business code differs.
 
 ## Decisions already made
 
 - Security comes from the `Pinotechrd.Security` NuGet package: JWT with refresh tokens and one database schema per tenant. The template copies no authentication or permission code.
 - i18n in the core and in the UI, English and Spanish from the start. The API returns a stable error `code`; the UI translates it.
-- Backend layers: Domain, Application, Contracts, Resources, Infrastructure, Api. Minimal APIs, one file per use case.
+- Two backend architectures behind `--architecture`: `clean` (one set of layers) and `modular` (modular monolith with clean architecture inside each module). Minimal APIs, one file per use case, in both.
+- Modular rules: a module references only the `Contracts` of another module; each module owns its tables, its DbContext and its migrations; no foreign keys or joins across modules; modules talk through contract interfaces or integration events.
 - Frontend: Vue 3.5, Vite, TypeScript strict, PrimeVue 4, Pinia, vue-i18n, zod, modules per feature.
 - Messaging and outbox with Wolverine. Level 2 cache with Redis in the `distributed` profile.
 - First cloud provider for Terraform: GCP. Azure and AWS come later behind the same `--cloud` option.
+- MIT license for this repository and for the generated project.
+- PWA support is included by default.
 - The generated project targets .NET 10, the LTS release and the one `Pinotechrd.Security` targets.
 - Every profile: access token in memory and refresh token in an `HttpOnly` cookie, refresh tokens stored in the database, migrations as a separate deploy step, background work safe for several instances.
-
-## Decisions to confirm
-
-- [ ] License of this repository and of the generated project (`MIT` is assumed, as in `Pinotechrd.Security`).
-- [ ] Whether the generated project includes PWA support by default or behind an option.
 
 ## Quality bar
 
@@ -37,6 +44,8 @@ The template must carry the best code we can justify, not the code we happen to 
 | --- | --- | --- |
 | Architecture | Dependencies point inward; the domain knows nothing about frameworks or the database. | R. C. Martin, *Clean Architecture*; A. Cockburn, "Hexagonal Architecture" |
 | Domain model | Entities protect their own invariants; no public setters, no anemic model. | E. Evans, *Domain-Driven Design*; V. Vernon, *Implementing Domain-Driven Design* |
+| Modular monolith | Modules are bounded contexts with enforced boundaries and their own data; the database is not the integration layer. | M. Richards and N. Ford, *Fundamentals of Software Architecture* (2nd ed.); S. Brown, "The Missing Chapter" in *Clean Architecture*; K. Grzybek, "Modular Monolith" series |
+| Starting point | Start with the simplest structure and split when the domain shows where. | M. Fowler, "MonolithFirst" |
 | Module design | Deep modules with small interfaces; complexity is hidden, not spread. | J. Ousterhout, *A Philosophy of Software Design* |
 | Code hygiene | Small functions, intention-revealing names, refactor before adding. | M. Fowler, *Refactoring*; R. C. Martin, *Clean Code* |
 | HTTP API | Standard status codes, conditional requests with ETag, errors as problem details. | RFC 9110; RFC 9457 |
@@ -69,10 +78,21 @@ How the bar is enforced:
 - [ ] Template test harness: install the template, generate a project, build it and run its tests.
 - [ ] CI for this repository: harness, CodeQL, dependency review, pinned actions, Dependabot. Add the checks to the branch protection.
 
+## Phase 0b. Spikes
+
+Short experiments that test decisions with no outside evidence. Each one ends with a written result in `docs/adr/`; a failed spike changes the decision before anything is built on it.
+
+- [ ] Migrations per module and per tenant: three modules and fifty tenant schemas. Measure the time and confirm a migration history per module works inside a tenant schema (tables prefixed by module).
+- [ ] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants.
+- [ ] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint.
+
 ## Phase 1. Backend core
 
-- [ ] Solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
+- [ ] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
 - [ ] Architecture test that enforces the dependency direction between layers.
+- [ ] Building blocks shared by both architectures: domain base types, application pipeline, infrastructure plumbing.
+- [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
+- [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
 - [ ] API host: automatic endpoint registration, URL versioning (`/api/v1`), health checks (live and ready).
 - [ ] Errors: ProblemDetails with stable codes, the code catalogue and the test that keeps it in sync.
 - [ ] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
@@ -119,6 +139,7 @@ How the bar is enforced:
 ## Phase 6. Frontend
 
 - [ ] Scaffold: Vite, TypeScript strict, ESLint with no warnings allowed, Prettier, Vitest.
+- [ ] PWA: installable app, update prompt, offline view.
 - [ ] PrimeVue theme, layout shell (top bar, sidebar, language switcher), not-found and forbidden views.
 - [ ] i18n plugin with `en` and `es`, catalogues per module loaded by route, key parity test.
 - [ ] API client typed from the OpenAPI contract, with the generation script.
@@ -153,9 +174,10 @@ How the bar is enforced:
 ## Phase 9. Template productization
 
 - [ ] `template.json` symbols for `profile`, `deploy`, `iac` and `cloud`, with conditional content.
-- [ ] Harness matrix: `standalone` and `distributed`, `compose` and `kubernetes`.
+- [ ] Harness matrix: `clean` and `modular`, `standalone` and `distributed`, `compose` and `kubernetes`.
 - [ ] Documentation of the generated project: README, ADRs, `AGENTS.md`, `CLAUDE.md`.
-- [ ] `scripts/new-module.ps1` to scaffold a feature in the API and the web.
+- [ ] `scripts/new-module.ps1` to scaffold a feature (`clean`) or a whole module (`modular`) in the API and the web.
+- [ ] Guide to move a `clean` project to `modular` when its domain needs it.
 - [ ] Pack and publish to nuget.org with Trusted Publishing; changelog and versioning.
 
 ## Phase 10. Adoption
