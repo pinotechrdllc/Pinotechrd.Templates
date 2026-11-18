@@ -22,17 +22,17 @@ public class LayerDependencyTests
     }
 
     [Fact]
-    public void ContractsReferencesNoOtherSolutionAssembly()
+    public void ContractsReferencesNoOtherSolutionAssemblyAndNoFramework()
     {
         ReferenceRules.AssertNone(ReferenceRules.Violations(
-            ReferenceRules.Contracts, AllExcept(ReferenceRules.Contracts), []));
+            ReferenceRules.Contracts, AllExcept(ReferenceRules.Contracts), ReferenceRules.FrameworkPrefixesForbiddenInDomain));
     }
 
     [Fact]
-    public void ResourcesReferencesNoOtherSolutionAssembly()
+    public void ResourcesReferencesNoOtherSolutionAssemblyAndNoFramework()
     {
         ReferenceRules.AssertNone(ReferenceRules.Violations(
-            ReferenceRules.Resources, AllExcept(ReferenceRules.Resources), []));
+            ReferenceRules.Resources, AllExcept(ReferenceRules.Resources), ReferenceRules.FrameworkPrefixesForbiddenInDomain));
     }
 
     [Fact]
@@ -88,5 +88,23 @@ public class LayerDependencyTests
             Assert.Contains(ReferenceRules.NameOf(ReferenceRules.Api), m);
             Assert.Contains("Microsoft.AspNetCore", m);
         });
+    }
+
+    [Theory]
+    [InlineData("System.Data.Common")]
+    [InlineData("System.Data")]
+    [InlineData("System.Net.Http")]
+    public void AdoNetAndHttpAreNotTreatedAsBaseClassLibrary(string name)
+    {
+        Assert.False(ReferenceRules.IsBaseClassLibrary(name));
+    }
+
+    [Theory]
+    [InlineData("System.Runtime")]
+    [InlineData("System.Collections")]
+    [InlineData("netstandard")]
+    public void OrdinarySystemAssembliesAreBaseClassLibrary(string name)
+    {
+        Assert.True(ReferenceRules.IsBaseClassLibrary(name));
     }
 }

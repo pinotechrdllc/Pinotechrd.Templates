@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -8,13 +9,16 @@ namespace MyApp.Api.Tests.Host;
 // Chosen approach: load the appsettings.json found in the host content root through the configuration
 // system and inspect the keys and values it yields. This checks the file the host really loads, without
 // the environment overlays (appsettings.Development.json, environment variables) that would blur the result.
-public class BaseSettingsTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+public partial class BaseSettingsTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
 {
     private static readonly string[] SensitiveKeyFragments =
         ["connectionstring", "password", "pwd", "secret", "apikey", "privatekey", "accesskey", "token", "credential"];
 
     private static readonly string[] SensitiveValueFragments =
-        ["password=", "pwd=", "user id=", "uid=", "host=", "server=", "-----begin"];
+        ["password=", "pwd=", "user id=", "uid=", "host=", "server=", "data source=", "accountkey=", "-----begin"];
+
+    [GeneratedRegex(@"://[^/\s@]*@")]
+    private static partial Regex UrlCredentials();
 
     private static List<string> Findings(IEnumerable<KeyValuePair<string, string?>> settings)
     {
@@ -23,11 +27,11 @@ public class BaseSettingsTests(WebApplicationFactory<Program> factory) : IClassF
         {
             var lowerKey = key.ToLowerInvariant();
             var segments = lowerKey.Split(':');
-            if (SensitiveKeyFragments.Any(lowerKey.Contains) || segments.Contains("key") || segments.Contains("keys"))
+            if (SensitiveKeyFragments.Any(lowerKey.Contains) || segments.Any(x => x.EndsWith("key", StringComparison.Ordinal) || x.EndsWith("keys", StringComparison.Ordinal)))
             {
                 findings.Add($"Key '{key}' looks like a secret or connection string and must not be in appsettings.json.");
             }
-            else if (value is not null && SensitiveValueFragments.Any(f => value.Contains(f, StringComparison.OrdinalIgnoreCase)))
+            else if (value is not null && (SensitiveValueFragments.Any(f => value.Contains(f, StringComparison.OrdinalIgnoreCase)) || UrlCredentials().IsMatch(value)))
             {
                 findings.Add($"Value of '{key}' looks like a connection string or credential.");
             }
@@ -37,35 +41,50 @@ public class BaseSettingsTests(WebApplicationFactory<Program> factory) : IClassF
     }
 
     [Fact]
-    public void BaseAppsettingsContainsNoConnectionStringsPasswordsKeysOrSecrets()
+    public void ShippedAppsettingsFilesContainNoConnectionStringsPasswordsKeysOrSecrets()
     {
         var contentRoot = factory.Services.GetRequiredService<IWebHostEnvironment>().ContentRootPath;
-        var path = Path.Combine(contentRoot, "appsettings.json");
-        Assert.True(File.Exists(path), $"appsettings.json not found in the host content root '{contentRoot}'.");
+        var files = Directory.GetFiles(contentRoot, "appsettings*.json")
+            .Where(f => !f.EndsWith(".local.json", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        Assert.True(files.Count > 0, $"No appsettings*.json found in the host content root '{contentRoot}'.");
 
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(contentRoot)
-            .AddJsonFile("appsettings.json", optional: false)
-            .Build();
-
-        var findings = Findings(configuration.AsEnumerable());
+        var findings = new List<string>();
+        foreach (var file in files)
+        {
+            var configuration = new ConfigurationBuilder().AddJsonFile(file, optional: false).Build();
+            findings.AddRange(Findings(configuration.AsEnumerable()).Select(f => $"{Path.GetFileName(file)}: {f}"));
+        }
 
         Assert.True(findings.Count == 0, string.Join(Environment.NewLine, findings));
     }
 
-    [Fact]
-    public void SecretDetectorFlagsConnectionStringsPasswordsAndKeysButNotOrdinarySettings()
+    [Theory]
+    [InlineData("ConnectionStrings:Default", "x")]
+    [InlineData("Db:Password", "x")]
+    [InlineData("Jwt:Key", "abc")]
+    [InlineData("Jwt:SigningKey", "abc")]
+    [InlineData("Storage:AccountKey", "abc")]
+    [InlineData("EncryptionKey", "abc")]
+    [InlineData("Client:ClientKey", "abc")]
+    [InlineData("Other:Setting", "Server=a;User Id=b")]
+    [InlineData("Other:Setting", "Host=db;Database=x")]
+    [InlineData("Other:Setting", "Data Source=db.sqlite")]
+    [InlineData("Other:Setting", "AccountKey=abc")]
+    [InlineData("Other:Setting", "postgres://user:pass@host/db")]
+    public void SecretDetectorFlagsSecretLookingSettings(string key, string value)
     {
-        var findings = Findings(
-        [
-            new("ConnectionStrings:Default", "Host=db;Database=x"),
-            new("Db:Password", "x"),
-            new("Jwt:Key", "abc"),
-            new("Other:Setting", "Server=a;User Id=b"),
-            new("Logging:LogLevel:Default", "Information"),
-            new("AllowedHosts", "*"),
-        ]);
+        Assert.Single(Findings([new(key, value)]));
+    }
 
-        Assert.Equal(4, findings.Count);
+    [Theory]
+    [InlineData("Logging:LogLevel:Default", "Information")]
+    [InlineData("Logging:LogLevel:Microsoft.AspNetCore", "Warning")]
+    [InlineData("AllowedHosts", "*")]
+    [InlineData("Service:BaseUrl", "https://example.com/api")]
+    public void SecretDetectorIgnoresOrdinarySettings(string key, string value)
+    {
+        Assert.Empty(Findings([new(key, value)]));
     }
 }

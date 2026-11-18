@@ -7,8 +7,12 @@ public class DomainDependencyTests
         "Microsoft.AspNetCore",
         "Microsoft.EntityFrameworkCore",
         "Microsoft.Extensions",
+        "Microsoft.Data",
         "Npgsql",
+        "Dapper",
         "Wolverine",
+        "System.Data",
+        "System.Net.Http",
     ];
 
     private static readonly string[] BaseClassLibraryPrefixes = ["System", "netstandard", "mscorlib"];

@@ -5,20 +5,29 @@ namespace MyApp.Api.Tests.Architecture;
 /// <summary>Reflection helpers that report forbidden references of an assembly.</summary>
 internal static class ReferenceRules
 {
+    public static readonly string[] AdoAndHttpPrefixes = ["System.Data", "System.Net.Http"];
+
     public static readonly string[] FrameworkPrefixesForbiddenInDomain =
     [
         "Microsoft.AspNetCore",
         "Microsoft.EntityFrameworkCore",
         "Microsoft.Extensions",
+        "Microsoft.Data",
         "Npgsql",
+        "Dapper",
         "Wolverine",
+        .. AdoAndHttpPrefixes,
     ];
 
     public static readonly string[] FrameworkPrefixesForbiddenInApplication =
     [
         "Microsoft.AspNetCore",
         "Microsoft.EntityFrameworkCore",
+        "Microsoft.Data",
         "Npgsql",
+        "Dapper",
+        "Wolverine",
+        .. AdoAndHttpPrefixes,
     ];
 
     public static readonly string[] BaseClassLibraryPrefixes = ["System", "netstandard", "mscorlib"];
@@ -41,6 +50,9 @@ internal static class ReferenceRules
 
     public static IReadOnlyList<string> ReferencedNames(Assembly assembly) =>
         [.. assembly.GetReferencedAssemblies().Select(r => r.Name!).OrderBy(n => n, StringComparer.Ordinal)];
+
+    public static bool IsBaseClassLibrary(string name) =>
+        BaseClassLibraryPrefixes.Any(p => HasPrefix(name, p)) && !AdoAndHttpPrefixes.Any(p => HasPrefix(name, p));
 
     public static bool HasPrefix(string name, string prefix) =>
         name == prefix || name.StartsWith(prefix + ".", StringComparison.Ordinal);
@@ -72,7 +84,7 @@ internal static class ReferenceRules
     /// <summary>Returns a message for every reference of <paramref name="assembly"/> outside the base class library.</summary>
     public static IReadOnlyList<string> NonBaseClassLibraryViolations(Assembly assembly) =>
         [.. ReferencedNames(assembly)
-            .Where(r => !BaseClassLibraryPrefixes.Any(p => HasPrefix(r, p)))
+            .Where(r => !IsBaseClassLibrary(r))
             .Select(r => $"Assembly '{NameOf(assembly)}' must not reference '{r}' (only the base class library is allowed).")];
 
     public static void AssertNone(IReadOnlyList<string> violations) =>
