@@ -82,7 +82,7 @@ How the bar is enforced:
 
 Short experiments that test decisions with no outside evidence. Each one ends with a written result in `docs/adr/`; a failed spike changes the decision before anything is built on it.
 
-- [ ] Migrations per module and per tenant: three modules and fifty tenant schemas. Measure the time and confirm a migration history per module works inside a tenant schema (tables prefixed by module).
+- [x] Migrations per module and per tenant: three modules and fifty tenant schemas. Measure the time and confirm a migration history per module works inside a tenant schema (tables prefixed by module). Result: the design works, see [ADR 0001](docs/adr/0001-tenant-module-migrations.md).
 - [ ] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants.
 - [ ] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint.
 
@@ -104,7 +104,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 ## Phase 2. Security and tenancy
 
 - [ ] Wire `Pinotechrd.Security`: `AddPinotechrdSecurity`, `UseTenantResolution`, the DbContext on `PinotechrdSecurityDbContext`.
-- [ ] Schema per tenant: schema resolver, connection interceptor, model cache key per schema.
+- [ ] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001).
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
