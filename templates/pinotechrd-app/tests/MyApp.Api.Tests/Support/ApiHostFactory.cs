@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using MyApp.BuildingBlocks.Web;
+using MyApp.Infrastructure.Database;
 
 namespace MyApp.Api.Tests.Support;
 
@@ -16,6 +18,13 @@ namespace MyApp.Api.Tests.Support;
 /// environment is Development unless the factory is created with <see cref="ForEnvironment"/>. Configuration values
 /// are supplied with <see cref="WithSetting"/> before the first request, and a test sets the remote address of a
 /// request (the in-memory server gives none) with the <see cref="RemoteAddressHeader"/> request header.
+/// <para>
+/// Database: a host that does not exercise the database gets <see cref="TestDatabase.PlaceholderConnectionString"/>
+/// (valid, never opened) and a healthy stand-in for the readiness check named <see cref="DatabaseHealthCheck.Name"/>,
+/// so the readiness tests of the rest of the application keep meaning "ready with its dependencies up" without a
+/// container. The real check is kept, with whatever connection string the test chose, as soon as the test calls
+/// <see cref="WithDatabase"/>, <see cref="WithoutDatabaseConnectionString"/> or sets the connection string itself.
+/// </para>
 /// </summary>
 public sealed class ApiHostFactory : WebApplicationFactory<Program>
 {
@@ -23,7 +32,12 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public const string RemoteAddressHeader = "X-Test-Remote-Address";
 
     private readonly string _environment;
-    private readonly Dictionary<string, string?> _settings = [];
+    private readonly Dictionary<string, string?> _settings = new()
+    {
+        [DatabaseRegistration.ConnectionStringKey] = TestDatabase.PlaceholderConnectionString,
+    };
+
+    private bool _realDatabaseCheck;
     private readonly Dictionary<string, string> _earlySettings = [];
     private readonly List<Action<IServiceCollection>> _services = [];
 
@@ -41,6 +55,21 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public ApiHostFactory WithSetting(string key, string value)
     {
         _settings[key] = value;
+        _realDatabaseCheck |= string.Equals(key, DatabaseRegistration.ConnectionStringKey, StringComparison.Ordinal);
+        return this;
+    }
+
+    /// <summary>Uses <paramref name="connectionString"/> as the database and keeps the real readiness check.</summary>
+    public ApiHostFactory WithDatabase(string connectionString) => WithSetting(DatabaseRegistration.ConnectionStringKey, connectionString);
+
+    /// <summary>
+    /// Leaves the connection string unset (even if the machine's environment sets one) and keeps the real readiness
+    /// check, for the tests of the start-up failure.
+    /// </summary>
+    public ApiHostFactory WithoutDatabaseConnectionString()
+    {
+        _settings[DatabaseRegistration.ConnectionStringKey] = null;
+        _realDatabaseCheck = true;
         return this;
     }
 
@@ -78,6 +107,20 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             // the test project registers its own endpoint types the same way the API does for its own.
             services.AddValidation();
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
+            if (!_realDatabaseCheck)
+            {
+                services.Configure<HealthCheckServiceOptions>(options =>
+                {
+                    foreach (var registration in options.Registrations.Where(r => r.Name == DatabaseHealthCheck.Name).ToList())
+                    {
+                        options.Registrations.Remove(registration);
+                    }
+
+                    options.Registrations.Add(new HealthCheckRegistration(
+                        DatabaseHealthCheck.Name, _ => new HealthyStandIn(), failureStatus: null, tags: [HealthRegistration.ReadyTag]));
+                });
+            }
+
             // First, so it also runs ahead of the platform's own forwarded headers middleware.
             services.Insert(0, ServiceDescriptor.Singleton<IStartupFilter, RemoteAddressStartupFilter>());
             foreach (var configure in _services)
@@ -85,6 +128,13 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 configure(services);
             }
         });
+    }
+
+    // The database being up, for the hosts that do not test the database.
+    private sealed class HealthyStandIn : IHealthCheck
+    {
+        public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default) =>
+            Task.FromResult(HealthCheckResult.Healthy());
     }
 
     // Runs ahead of everything the API adds, like the address a real server would have set.

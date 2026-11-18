@@ -6,6 +6,31 @@ namespace MyApp.Api.Tests.Support;
 internal static class StartupFailure
 {
     /// <summary>
+    /// As <see cref="AssertOptionsInvalid(ApiHostFactory, string)"/>, and no text of the whole exception chain (messages,
+    /// inner exceptions, stack traces) contains any of <paramref name="forbidden"/>, a secret that must never be quoted.
+    /// </summary>
+    public static string AssertOptionsInvalidWithout(ApiHostFactory factory, string settingName, params string[] forbidden)
+    {
+        var exception = Record.Exception(() =>
+        {
+            using var client = factory.CreateClient();
+        });
+
+        Assert.NotNull(exception);
+        var validation = Chain(exception).OfType<OptionsValidationException>().FirstOrDefault();
+        Assert.True(validation is not null, "Expected an OptionsValidationException but got: " + exception);
+        Assert.Contains(settingName, validation.Message, StringComparison.Ordinal);
+        var everything = string.Join(
+            Environment.NewLine, Chain(exception).Select(e => e.ToString() + Environment.NewLine + e.Message));
+        foreach (var text in forbidden)
+        {
+            Assert.DoesNotContain(text, everything, StringComparison.Ordinal);
+        }
+
+        return validation.Message;
+    }
+
+    /// <summary>
     /// Starts the host and asserts that it fails with an <see cref="OptionsValidationException"/>, possibly wrapped,
     /// whose message contains <paramref name="settingName"/>.
     /// </summary>

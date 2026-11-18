@@ -154,6 +154,8 @@ public class StartupFailureLoggingTests
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
         start.Environment["Http__Cors__AllowedOrigins__0"] = "*";
+        // Valid, so the invalid CORS setting is the only reason to stop.
+        start.Environment["ConnectionStrings__Database"] = TestDatabase.PlaceholderConnectionString;
         start.Environment.Remove("OTEL_EXPORTER_OTLP_ENDPOINT");
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The application did not start.");

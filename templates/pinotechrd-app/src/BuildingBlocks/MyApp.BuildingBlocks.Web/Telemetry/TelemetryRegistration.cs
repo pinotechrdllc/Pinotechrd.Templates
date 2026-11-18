@@ -35,7 +35,9 @@ namespace MyApp.BuildingBlocks.Web.Telemetry;
 /// <para>
 /// Rule: no log event or span attribute holds a header value (<c>Authorization</c>, <c>Cookie</c>, <c>Set-Cookie</c> or
 /// any other), a query string, a request or response body or the client address, because they carry tokens and
-/// personal data; the framework categories that would write one are pinned (<see cref="PinnedLogCategories"/>). The
+/// personal data; the framework categories that would write one are pinned (<see cref="PinnedLogCategories"/>). No
+/// span holds exception text: a recorded exception keeps its type only, and an error status description becomes the
+/// span's <c>error.type</c> (<see cref="SpanErrors"/>). The
 /// raw request path is recorded (in the completion event, the request scope and the <c>url.path</c> span attribute),
 /// so routes carry opaque identifiers only, such as a UUID: never personal data (a national id, an email, a phone
 /// number, a name) and never a secret. The one accepted exception is the unhandled-exception event, which holds the
@@ -161,6 +163,7 @@ public static class TelemetryRegistration
     {
         var exportTraces = IsSet(configuration, OtlpEndpointKey) || IsSet(configuration, OtlpTracesEndpointKey);
         var exportMetrics = IsSet(configuration, OtlpEndpointKey) || IsSet(configuration, OtlpMetricsEndpointKey);
+        SpanErrors.RedactRecordedExceptions();
 
         services.AddOpenTelemetry()
             .ConfigureResource(resource => resource
@@ -172,7 +175,9 @@ public static class TelemetryRegistration
             {
                 tracing.AddAspNetCoreInstrumentation(ConfigureServerSpans)
                     .AddHttpClientInstrumentation(ConfigureClientSpans)
-                    .AddSource(ApplicationSourceNames);
+                    .AddSource(ApplicationSourceNames)
+                    // First, so the exporter and every processor added later see the cleared status.
+                    .AddProcessor(SpanErrors.CreateStatusRedaction());
                 if (exportTraces)
                 {
                     tracing.AddOtlpExporter();

@@ -22,7 +22,64 @@ dotnet build MyApp.slnx
 dotnet test MyApp.slnx
 ```
 
-Run the API with `dotnet run --project src/MyApp.Api`.
+Run the API with `dotnet run --project src/MyApp.Api`. It needs a PostgreSQL connection string (see [Database](#database)).
+
+The tests need Docker: they start PostgreSQL in a container, and they fail, rather than skip, when Docker is not running.
+
+## Database
+
+The application uses PostgreSQL through Npgsql. `src/MyApp.Infrastructure/Database/` owns the connection: one `NpgsqlDataSource` for the whole process, a singleton disposed with the host, which holds the connection pool. Every later piece of data access (EF Core, the tenant schema selection) is built on that data source.
+
+### Connection string
+
+The connection string is the setting `ConnectionStrings:Database`. It is a secret: it is never in `appsettings.json` or `appsettings.Development.json` (a test fails if a connection string appears there), never logged and never returned in an error or a health response. Supply it through the environment, `ConnectionStrings__Database`, in every deployment (from the platform's secret store), or through user secrets on a development machine.
+
+A local PostgreSQL, with the same major version the tests use:
+
+```sh
+docker run -d --name app-postgres -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app -p 127.0.0.1:5432:5432 postgres:17.7
+```
+
+It publishes the port on the loopback address only: Docker Desktop opens a published port past the host firewall, and this password is trivial.
+
+Then, for that container (local values only):
+
+```sh
+dotnet user-secrets init --project src/MyApp.Api      # once; user secrets are read in the Development environment
+dotnet user-secrets set "ConnectionStrings:Database" "Host=localhost;Port=5432;Database=app;Username=app;Password=app" --project src/MyApp.Api
+```
+
+or, for one shell session, `export ConnectionStrings__Database="Host=localhost;Port=5432;Database=app;Username=app;Password=app"` (PowerShell: `$env:ConnectionStrings__Database = "..."`).
+
+### Fail fast
+
+When the host starts it checks the setting: a missing or empty value, or one that Npgsql does not accept as a connection string (bad format, unknown keyword, invalid value, no `Host`), stops it with an `OptionsValidationException` that names `ConnectionStrings:Database` and never shows the value; the exit code is 1. The check does not connect: a valid string for a server that is down starts the application, and the readiness probe reports the database.
+
+The build-time contract generation (`dotnet build src/MyApp.Api -p:UpdateContract=true`) starts the host with no configuration and no server, so it skips this check; the services are still registered and nothing connects to the database.
+
+### Connection settings
+
+Set on every connection by the application:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| `Include Error Detail` | always off, even if the connection string turns it on | Error details can carry row values into exceptions, and exceptions reach the logs. |
+| `Persist Security Info` | always off, even if the connection string turns it on | The connection string read back from a connection or the data source (by EF Core or an interceptor, for example) never holds the password. |
+| `Application Name` | the application name (`MyApp.Api`) unless the connection string sets one | Each instance's connections are identifiable in `pg_stat_activity`. |
+| `Command Timeout` | 30 seconds unless the connection string sets one | No statement waits without a limit chosen on purpose. |
+| `Maximum Pool Size` | 20 unless the connection string sets one (Npgsql's default is 100) | The pool is per process, and 100 alone fills PostgreSQL's default `max_connections` of 100: four instances at 20 use 80 and leave room for the migrator, the reserved superuser slots and an operator. |
+
+Left at Npgsql's defaults, which the connection string can override: pooling on, `Minimum Pool Size` 0, `Connection Idle Lifetime` 300 seconds, `Timeout` (to connect, including the server's first reply and the login) 15 seconds, `Cancellation Timeout` (how long a cancelled command waits for the server to confirm before the connection is broken) 2000 milliseconds. No retry policy is configured.
+
+To raise the pool, add `Maximum Pool Size=40` (for example) to the connection string, and keep instances × `Maximum Pool Size`, plus the migrator and other clients, below the server's `max_connections`; raise that on the server first if needed. A request that finds the pool full waits for a free connection up to `Timeout`, then fails.
+
+With PgBouncer in transaction pooling mode, per-connection session state such as `search_path` does not survive between transactions, so the per-tenant schema selection planned for a later phase will need `SET LOCAL` inside each transaction, or session pooling.
+
+Npgsql writes no log events: its debug events name the host, the database and the commands, so no logger factory is given to it. Errors reach the caller as exceptions.
+
+### Readiness
+
+`/health/ready` takes a connection from the shared pool and runs `SELECT 1`. It answers 200 `Healthy` when the database answers and 503 `Unhealthy` when it does not, and it always answers within the check's 2-second limit plus the request's own processing (measured 2.00 to 2.22 seconds): when the connection is refused, when the address does not route, when a server accepts the connection and never replies, and when the server stalls in the middle of the query. Npgsql does not stop for a cancellation while it waits for a new connection's first reply and login (it waits up to `Timeout`), and a cancelled query waits up to `Cancellation Timeout` more, so the check stops waiting at 2 seconds and lets that attempt finish on its own: it keeps one pool slot until Npgsql gives up (at most `Timeout`, 15 seconds, for a silent server; `Cancellation Timeout`, 2 seconds, after the limit for a stalled query) and then releases it. Probes made meanwhile wait on that same attempt instead of starting another, so readiness never holds more than one connection, and once the database answers again the next probe after that attempt ends reports 200. `/health/live` never touches the database. The body is only the status word: no host, user, connection string or exception. A failing check is logged at Error by the health check service with a fixed description that holds only the exception type and, for a server error, its SQLSTATE code (for example `28P01`, a failed login), because Npgsql's messages name the host and the user.
 
 ## Adding an endpoint
 
@@ -145,7 +202,7 @@ Clients can send trace context. An incoming `traceparent` chooses the trace id t
 
 ### Traces and metrics
 
-OpenTelemetry records a server span per request, named after its route with `http.route` set, and a client span per outgoing `HttpClient` call. Health probes produce no span. No header (the user agent included) and no query string is recorded; a client span keeps the scheme, host, port and path of its target only. Metrics: the ASP.NET Core server metrics (`http.server.request.duration` among them), the HTTP client metrics and the .NET runtime metrics. The resource names the service with the application name (`service.name`), its version (`service.version`) and its environment (`deployment.environment.name`); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them.
+OpenTelemetry records a server span per request, named after its route with `http.route` set, a client span per outgoing `HttpClient` call and a span per database command (Npgsql's `Npgsql` source, with `db.query.text`, `db.system.name`, `db.namespace`, `server.address`, `server.port`, `db.npgsql.data_source` and `db.npgsql.connection_id`; the statement text, never parameter values). A failed command adds `error.type` (the SQLSTATE for a server error, such as `22P02`, otherwise the exception type), `db.response.status_code` (the SQLSTATE, for a server error only) and the error status, whose description is the `error.type` value. Health probes produce no span, the readiness query included, and opening a physical connection is not traced (the `db.client.connection.create_time` metric measures it). No span holds exception text, from any source: an `exception` event recorded on a span keeps `exception.type` only (its message and stack trace are left empty, because they quote input values, user names and host names), and an error status description is replaced by the span's `error.type`. No header (the user agent included) and no query string is recorded; a client span keeps the scheme, host, port and path of its target only. Metrics: the ASP.NET Core server metrics (`http.server.request.duration` among them), the HTTP client metrics, the .NET runtime metrics and Npgsql's connection pool and command metrics, whose pool name is the application name. The resource names the service with the application name (`service.name`), its version (`service.version`) and its environment (`deployment.environment.name`); `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES` override them.
 
 Nothing is exported until an OTLP endpoint is set; with none, the application starts, runs and stops without trying to send anything. The endpoint is not in `appsettings.json`: set it in the environment, for example to an OpenTelemetry Collector:
 
@@ -167,7 +224,7 @@ private static readonly ActivitySource Source = new("MyApp.Sales");
 private static readonly Meter Meter = new("MyApp.Sales");
 ```
 
-For any other name, a library's for example, register it once from the code that adds that library, before or after `AddTelemetry()`:
+For any other name, a library's for example, register it once from the code that adds that library, before or after `AddTelemetry()`, as `src/MyApp.Api/DatabaseComposition.cs` does for Npgsql:
 
 ```csharp
 services.AddTelemetrySource("Npgsql");
@@ -212,5 +269,5 @@ The rate limit is partitioned by `HttpRateLimiting.ClientPartitionKey`: the clie
 
 Limits of this setup, stated plainly:
 
-- `/health/live` and `/health/ready` are public (they allow anonymous access, so a fallback authorization policy never applies to them) and never rate limited, and `/health/ready` runs the readiness checks (later the database) on every request. The reverse proxy must not expose `/health/*` to the internet; only the orchestrator should reach them.
+- `/health/live` and `/health/ready` are public (they allow anonymous access, so a fallback authorization policy never applies to them) and never rate limited, and `/health/ready` runs the readiness checks (a query to the database) on every request. The reverse proxy must not expose `/health/*` to the internet; only the orchestrator should reach them.
 - When the server listens on a Unix socket or a named pipe there is no remote address, so every client shares one rate limit partition. That setup is not supported with this limiter: listen on TCP behind the proxy and list the proxy as above.

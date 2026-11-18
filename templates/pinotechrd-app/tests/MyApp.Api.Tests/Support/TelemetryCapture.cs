@@ -14,7 +14,13 @@ internal sealed record CapturedSpan(
     string TraceId,
     ActivityKind Kind,
     IReadOnlyDictionary<string, string> Tags,
-    IReadOnlyList<string> Texts);
+    IReadOnlyList<string> Texts,
+    ActivityStatusCode Status,
+    string? StatusDescription,
+    IReadOnlyList<CapturedEvent> Events);
+
+/// <summary>An event recorded on a span (the <c>exception</c> event, for one) with its attributes as text.</summary>
+internal sealed record CapturedEvent(string Name, IReadOnlyDictionary<string, string> Attributes);
 
 /// <summary>One metric point: its tags and, for a histogram, how many measurements it holds.</summary>
 internal sealed record CapturedPoint(IReadOnlyDictionary<string, string> Tags, long Count);
@@ -115,7 +121,13 @@ internal sealed class TelemetryCapture : IDisposable
             texts.AddRange(data.Baggage.Select(b => b.Key));
             texts.AddRange(data.Baggage.Select(b => b.Value ?? string.Empty));
             texts.Add(data.StatusDescription ?? string.Empty);
-            _items.Enqueue(new CapturedSpan(data.Source.Name, data.DisplayName, data.TraceId.ToHexString(), data.Kind, tags, texts));
+            var events = data.Events
+                .Select(e => new CapturedEvent(
+                    e.Name,
+                    e.Tags.ToDictionary(t => t.Key, t => Convert.ToString(t.Value, CultureInfo.InvariantCulture) ?? string.Empty, StringComparer.Ordinal)))
+                .ToList();
+            _items.Enqueue(new CapturedSpan(
+                data.Source.Name, data.DisplayName, data.TraceId.ToHexString(), data.Kind, tags, texts, data.Status, data.StatusDescription, events));
         }
     }
 

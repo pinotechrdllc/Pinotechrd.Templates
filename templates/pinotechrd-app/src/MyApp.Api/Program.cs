@@ -20,6 +20,7 @@ try
     builder.Services.AddValidation();
     builder.Services.AddApiEndpoints(ApiAssembly.Assembly);
     builder.Services.AddHealth();
+    builder.Services.AddDatabaseWithReadiness();
     builder.Services.AddOpenApiDocument();
 
     var app = builder.Build();

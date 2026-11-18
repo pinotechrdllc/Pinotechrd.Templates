@@ -114,6 +114,8 @@ public class ContractIsCurrentTests : IClassFixture<ContractIsCurrentTests.RealA
     /// <summary>The application as it is, in Development because the document is not served in Production.</summary>
     public sealed class RealApiFactory : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development);
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development)
+                // A valid connection string that is never opened: the document needs the services, not a database.
+                .UseSetting(MyApp.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString);
     }
 }
