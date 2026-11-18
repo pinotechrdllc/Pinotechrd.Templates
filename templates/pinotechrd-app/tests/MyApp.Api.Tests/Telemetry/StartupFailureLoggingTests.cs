@@ -18,23 +18,38 @@ public class StartupFailureLoggingTests
 
     // Console.Out is process-wide and other tests' hosts write their events to it too, so the captured text is searched
     // for the event of this test by the unique message of its exception.
+    private static readonly object ConsoleGate = new();
+
     private static (T Result, List<JsonElement> Events) CaptureConsole<T>(Func<T> action, string marker)
     {
-        var original = Console.Out;
-        var text = new StringWriter();
-        Console.SetOut(TextWriter.Synchronized(text));
+        // One capture at a time: two overlapping swaps would restore each other's writer and lose events.
+        string captured;
         T result;
-        try
+        lock (ConsoleGate)
         {
-            result = action();
-        }
-        finally
-        {
-            Console.SetOut(original);
+            var original = Console.Out;
+            var text = new StringWriter();
+            var synchronizedText = TextWriter.Synchronized(text);
+            Console.SetOut(synchronizedText);
+            try
+            {
+                result = action();
+            }
+            finally
+            {
+                Console.SetOut(original);
+            }
+
+            // Another test's host may still write to the writer it fetched before the swap back: read under the
+            // wrapper's own lock.
+            lock (synchronizedText)
+            {
+                captured = text.ToString();
+            }
         }
 
         var events = new List<JsonElement>();
-        foreach (var line in text.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in captured.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             if (line.Contains(marker, StringComparison.Ordinal))
             {
@@ -154,6 +169,8 @@ public class StartupFailureLoggingTests
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Production";
         start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
         start.Environment["Http__Cors__AllowedOrigins__0"] = "*";
+        // Valid, so the invalid CORS setting is the only reason to stop.
+        start.Environment["ConnectionStrings__Database"] = TestDatabase.PlaceholderConnectionString;
         start.Environment.Remove("OTEL_EXPORTER_OTLP_ENDPOINT");
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("The application did not start.");

@@ -14,11 +14,18 @@ public class HostLifetimeTelemetryTests
         await client.GetAsync(path, TestContext.Current.CancellationToken);
 
     /// <summary>A local port that nothing listens on: it was free a moment ago and its listener is gone.</summary>
-    private static int ClosedPort()
+    // A port that nothing listens on and that nothing else can take while the test runs: a socket that is bound and never
+    // listens keeps the number reserved, and connections to it are refused. (A port chosen and then released could be
+    // given to another test's listener, or to another process, before the host connects.)
+    private sealed class ClosedPort : IDisposable
     {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
+        private readonly Socket _socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+        public ClosedPort() => _socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+
+        public int Number => ((IPEndPoint)_socket.LocalEndPoint!).Port;
+
+        public void Dispose() => _socket.Dispose();
     }
 
     // Breaks when a host with no OTLP endpoint warns or fails while it starts, serves a request or stops, for example
@@ -52,8 +59,9 @@ public class HostLifetimeTelemetryTests
     [Fact]
     public async Task RequestsSucceedAndNothingIsLoggedWhenTheConfiguredCollectorIsUnreachable()
     {
+        using var closed = new ClosedPort();
         var factory = new ApiHostFactory()
-            .WithEarlySetting(TelemetryRegistration.OtlpEndpointKey, $"http://127.0.0.1:{ClosedPort()}")
+            .WithEarlySetting(TelemetryRegistration.OtlpEndpointKey, $"http://127.0.0.1:{closed.Number}")
             .WithEarlySetting("OTEL_EXPORTER_OTLP_TIMEOUT", "500");
         var sink = factory.CaptureLogs();
         var client = factory.CreateClient();

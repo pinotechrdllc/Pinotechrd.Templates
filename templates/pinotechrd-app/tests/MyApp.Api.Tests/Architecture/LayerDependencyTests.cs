@@ -121,6 +121,41 @@ public class LayerDependencyTests
             ReferenceRules.Infrastructure, [ReferenceRules.Api], []));
     }
 
+    // Breaks when a layer other than the infrastructure (the API composes it and may name nothing of Npgsql here) or a
+    // building block starts to reference Npgsql: the web building block had no rule for it before.
+    [Fact]
+    public void OnlyTheInfrastructureAndTheApiMayReferenceNpgsql()
+    {
+        var violations = AllExcept(ReferenceRules.Infrastructure, ReferenceRules.Api)
+            .SelectMany(a => ReferenceRules.Violations(a, [], ["Npgsql"]))
+            .ToList();
+
+        ReferenceRules.AssertNone(violations);
+    }
+
+    // Guards the rule above against being vacuous: the checker sees Npgsql where it is allowed.
+    [Fact]
+    public void InfrastructureActuallyReferencesNpgsql()
+    {
+        Assert.Contains(ReferenceRules.ReferencedNames(ReferenceRules.Infrastructure), n => ReferenceRules.HasPrefix(n, "Npgsql"));
+    }
+
+    // Breaks when the infrastructure learns about the web host (the health tag belongs to the Api composition).
+    [Fact]
+    public void InfrastructureReferencesNeitherTheApiNorTheWebBuildingBlocks()
+    {
+        ReferenceRules.AssertNone(ReferenceRules.Violations(
+            ReferenceRules.Infrastructure, [ReferenceRules.Api, ReferenceRules.BuildingBlocksWeb], []));
+    }
+
+    // Breaks when the web building block learns about a business assembly (the infrastructure) or the other way round.
+    [Fact]
+    public void WebBuildingBlocksDoNotReferenceTheInfrastructure()
+    {
+        ReferenceRules.AssertNone(ReferenceRules.Violations(
+            ReferenceRules.BuildingBlocksWeb, [ReferenceRules.Infrastructure], []));
+    }
+
     [Fact]
     public void EachMarkerTypeLivesInADistinctAssemblyOfItsOwnLayer()
     {

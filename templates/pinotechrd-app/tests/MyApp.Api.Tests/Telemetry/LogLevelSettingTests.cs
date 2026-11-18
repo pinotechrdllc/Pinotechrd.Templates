@@ -12,18 +12,6 @@ public class LogLevelSettingTests
     private static async Task<HttpResponseMessage> GetAsync(HttpClient client, string path) =>
         await client.GetAsync(path, TestContext.Current.CancellationToken);
 
-    private static IEnumerable<Exception> Chain(Exception exception)
-    {
-        yield return exception;
-        IEnumerable<Exception> inner = exception is AggregateException aggregate
-            ? aggregate.InnerExceptions
-            : exception.InnerException is null ? [] : [exception.InnerException];
-        foreach (var child in inner.SelectMany(Chain))
-        {
-            yield return child;
-        }
-    }
-
     // Breaks when the default level is ignored and the completion event is written regardless (or never written).
     [Theory]
     [InlineData("Warning", 0)]
@@ -123,13 +111,7 @@ public class LogLevelSettingTests
     {
         using var factory = new ApiHostFactory().WithEarlySetting(DefaultLevel, level);
 
-        var exception = Record.Exception(() =>
-        {
-            using var client = factory.CreateClient();
-        });
-
-        Assert.NotNull(exception);
-        Assert.Contains(Chain(exception), e => e.Message.Contains(DefaultLevel, StringComparison.Ordinal));
+        StartupFailure.AssertFailsNaming(factory, DefaultLevel);
     }
 
     // Breaks when only the Default key is validated: a typo in a category override must stop the host too.
@@ -139,12 +121,6 @@ public class LogLevelSettingTests
         const string Setting = "Logging:LogLevel:Microsoft.AspNetCore";
         using var factory = new ApiHostFactory().WithEarlySetting(Setting, "Loud");
 
-        var exception = Record.Exception(() =>
-        {
-            using var client = factory.CreateClient();
-        });
-
-        Assert.NotNull(exception);
-        Assert.Contains(Chain(exception), e => e.Message.Contains(Setting, StringComparison.Ordinal));
+        StartupFailure.AssertFailsNaming(factory, Setting);
     }
 }

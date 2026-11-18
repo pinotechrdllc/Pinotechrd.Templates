@@ -105,13 +105,13 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] OpenAPI contract generated at build, frozen in `contract/openapi.v1.json`, with the test that fails when it is stale.
 - [x] Cross-cutting: security headers, CORS, rate limiting, forwarded headers trusted only from configured proxies, settings validated at start, no secrets in `appsettings.json`. The pipeline order, authentication included, is fixed inside the web building block.
 - [x] Logging and telemetry: Serilog and OpenTelemetry. No header, query string, body or client address in logs or traces; routes carry opaque identifiers only.
-- [ ] Integration test fixture with Testcontainers for PostgreSQL.
+- [x] PostgreSQL connection that fails fast when it is not configured, the readiness check, and the integration test fixture with Testcontainers. The tests need Docker.
 - [ ] Phase review against the quality bar (architecture, API, operability); findings added as tasks.
 
 ## Phase 2. Security and tenancy
 
 - [ ] Wire `Pinotechrd.Security`: `AddPinotechrdSecurity`, `UseTenantResolution`, the DbContext on `PinotechrdSecurityDbContext`.
-- [ ] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001).
+- [ ] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
