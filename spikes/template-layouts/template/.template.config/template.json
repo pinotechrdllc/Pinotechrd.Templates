@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Pinotechrd",
+  "classifications": [ "Spike" ],
+  "identity": "Pinotechrd.Spike.TemplateLayouts.Exclude",
+  "name": "Spike: two layouts from one source (exclude modifiers)",
+  "shortName": "spike-layouts",
+  "sourceName": "MyApp",
+  "preferNameDirectory": true,
+  "tags": { "language": "C#", "type": "solution" },
+  "symbols": {
+    "architecture": {
+      "type": "parameter",
+      "datatype": "choice",
+      "defaultValue": "clean",
+      "choices": [
+        { "choice": "clean", "description": "Layer projects." },
+        { "choice": "modular", "description": "Host plus modules." }
+      ]
+    },
+    "module": {
+      "type": "parameter",
+      "datatype": "text",
+      "description": "Name of the first module. Used only with --architecture modular.",
+      "defaultValue": "Core",
+      "replaces": "MyModule",
+      "fileRename": "MyModule"
+    },
+    "modular": {
+      "type": "computed",
+      "value": "(architecture == \"modular\")"
+    },
+    "moduleIsIdentifier": {
+      "type": "generated",
+      "generator": "regexMatch",
+      "datatype": "bool",
+      "parameters": {
+        "source": "module",
+        "pattern": "^[A-Z][A-Za-z0-9]*$"
+      }
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!modular)",
+          "exclude": [
+            "src/Modules/**",
+            "src/MyApp.Api/Startup.Modular.cs"
+          ]
+        },
+        {
+          "condition": "(modular)",
+          "exclude": [
+            "src/MyApp.Domain/**",
+            "src/MyApp.Application/**",
+            "src/MyApp.Api/Startup.Clean.cs"
+          ]
+        }
+      ]
+    }
+  ]
+}

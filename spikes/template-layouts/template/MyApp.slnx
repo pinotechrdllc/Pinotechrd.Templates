@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+<!--#if (modular) -->
+    <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Domain/MyApp.Modules.MyModule.Domain.csproj" />
+<!--#else -->
+    <Project Path="src/MyApp.Application/MyApp.Application.csproj" />
+    <Project Path="src/MyApp.Domain/MyApp.Domain.csproj" />
+<!--#endif -->
+    <Project Path="src/MyApp.Api/MyApp.Api.csproj" />
+  </Folder>
+</Solution>
