@@ -23,3 +23,19 @@ dotnet test MyApp.slnx
 ```
 
 Run the API with `dotnet run --project src/MyApp.Api`.
+
+## Adding an endpoint
+
+Each use case is one file in `src/MyApp.Api/Endpoints/` with a public class that implements `IEndpoint`. It is found at startup and mapped under `/api/v1`, so routes never repeat the version prefix:
+
+```csharp
+public sealed class GetVersionEndpoint : IEndpoint
+{
+    public void MapEndpoint(IEndpointRouteBuilder routes) =>
+        routes.MapGet("/version", () => TypedResults.Ok(new VersionResponse(version)))
+            .WithName("GetVersion")
+            .WithSummary("Gets the informational version of the running application.");
+}
+```
+
+Health probes live outside the API group: `/health/live` and `/health/ready` (checks tagged `HealthRegistration.ReadyTag`).

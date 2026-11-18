@@ -17,6 +17,7 @@
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Domain/MyApp.BuildingBlocks.Domain.csproj" />
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Application/MyApp.BuildingBlocks.Application.csproj" />
+    <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Web/MyApp.BuildingBlocks.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/MyApp.BuildingBlocks.Tests/MyApp.BuildingBlocks.Tests.csproj" />

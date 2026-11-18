@@ -36,6 +36,8 @@ internal static class ReferenceRules
 
     public static Assembly BuildingBlocksApplication => MyApp.BuildingBlocks.Application.BuildingBlocksApplicationAssembly.Assembly;
 
+    public static Assembly BuildingBlocksWeb => MyApp.BuildingBlocks.Web.BuildingBlocksWebAssembly.Assembly;
+
     public static Assembly Domain => MyApp.Domain.DomainAssembly.Assembly;
 
     public static Assembly Application => MyApp.Application.ApplicationAssembly.Assembly;
@@ -51,7 +53,7 @@ internal static class ReferenceRules
     /// <summary>The business assemblies: every assembly of the solution that is not a building block.</summary>
     public static IReadOnlyList<Assembly> AllLayers => [Domain, Application, Contracts, Resources, Infrastructure, Api];
 
-    public static IReadOnlyList<Assembly> BuildingBlocks => [BuildingBlocksDomain, BuildingBlocksApplication];
+    public static IReadOnlyList<Assembly> BuildingBlocks => [BuildingBlocksDomain, BuildingBlocksApplication, BuildingBlocksWeb];
 
     /// <summary>Every assembly of the solution that a rule may name: the business assemblies and the building blocks.</summary>
     public static IReadOnlyList<Assembly> AllSolutionAssemblies => [.. AllLayers, .. BuildingBlocks];
