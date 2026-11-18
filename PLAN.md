@@ -33,6 +33,8 @@ Both architectures share the same building blocks (tenancy, errors, i18n, outbox
 - First cloud provider for Terraform: GCP. Azure and AWS come later behind the same `--cloud` option.
 - MIT license for this repository and for the generated project.
 - PWA support is included by default.
+- Shared building blocks are separate projects (`BuildingBlocks.Domain`, `.Application`, `.Web`, later `.Infrastructure`) at the same path in both architectures ([ADR 0005](docs/adr/0005-shared-building-blocks.md)).
+- One error model: a `Result` for every expected failure, exceptions only for defects ([ADR 0004](docs/adr/0004-result-for-expected-failures.md)). Use cases are plain `*Handler` classes with `HandleAsync`.
 - The generated project targets .NET 10, the LTS release and the one `Pinotechrd.Security` targets.
 - Every profile: access token in memory and refresh token in an `HttpOnly` cookie, refresh tokens stored in the database, migrations as a separate deploy step, background work safe for several instances.
 
@@ -92,7 +94,8 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Architecture test that enforces the dependency direction between layers.
 - [ ] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton).
 - [ ] `--architecture modular` must not silently generate the `clean` skeleton: select content by architecture in `template.json` (review of the skeleton).
-- [ ] Building blocks shared by both architectures: domain base types, application pipeline, infrastructure plumbing.
+- [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
+- [ ] Building blocks, part 2: the web building block (with the API host task below).
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
 - [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
 - [ ] Re-measure the cost of `modular` against `clean` with the real generated projects and update ADR 0003.

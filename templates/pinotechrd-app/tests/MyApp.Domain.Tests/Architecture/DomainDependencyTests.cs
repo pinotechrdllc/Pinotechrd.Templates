@@ -1,3 +1,5 @@
+using MyApp.BuildingBlocks.Domain;
+
 namespace MyApp.Domain.Tests.Architecture;
 
 public class DomainDependencyTests
@@ -21,14 +23,15 @@ public class DomainDependencyTests
         name == prefix || name.StartsWith(prefix + ".", StringComparison.Ordinal);
 
     [Fact]
-    public void DomainReferencesNoOtherSolutionAssembly()
+    public void DomainReferencesNoSolutionAssemblyExceptTheDomainBuildingBlocks()
     {
         var domain = DomainAssembly.Assembly.GetName().Name!;
         var solutionPrefix = domain[..domain.LastIndexOf('.')];
+        var buildingBlocks = BuildingBlocksDomainAssembly.Assembly.GetName().Name!;
 
         var violations = DomainAssembly.Assembly.GetReferencedAssemblies()
             .Select(r => r.Name!)
-            .Where(n => HasPrefix(n, solutionPrefix))
+            .Where(n => HasPrefix(n, solutionPrefix) && n != buildingBlocks)
             .Select(n => $"Assembly '{domain}' must not reference solution assembly '{n}'.")
             .ToList();
 
@@ -39,6 +42,7 @@ public class DomainDependencyTests
     public void DomainReferencesOnlyTheBaseClassLibraryAndNoWebDataOrMessagingFramework()
     {
         var domain = DomainAssembly.Assembly.GetName().Name!;
+        var buildingBlocks = BuildingBlocksDomainAssembly.Assembly.GetName().Name!;
         var violations = new List<string>();
         foreach (var name in DomainAssembly.Assembly.GetReferencedAssemblies().Select(r => r.Name!))
         {
@@ -46,7 +50,7 @@ public class DomainDependencyTests
             {
                 violations.Add($"Assembly '{domain}' must not reference '{name}' (forbidden '{prefix}*').");
             }
-            else if (!BaseClassLibraryPrefixes.Any(p => HasPrefix(name, p)))
+            else if (name != buildingBlocks && !BaseClassLibraryPrefixes.Any(p => HasPrefix(name, p)))
             {
                 violations.Add($"Assembly '{domain}' must not reference '{name}' (only the base class library is allowed).");
             }
