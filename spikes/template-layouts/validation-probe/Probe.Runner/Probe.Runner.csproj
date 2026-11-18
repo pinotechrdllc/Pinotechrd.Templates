@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Throwaway probe runner. It never calls AddValidation itself. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- The resolver API that the probe inspects is marked experimental (ASP0029) in .NET 10. -->
+    <NoWarn>$(NoWarn);ASP0029</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\Probe.Empty\Probe.Empty.csproj" />
+    <ProjectReference Include="..\Probe.WithEndpoint\Probe.WithEndpoint.csproj" />
+  </ItemGroup>
+
+</Project>

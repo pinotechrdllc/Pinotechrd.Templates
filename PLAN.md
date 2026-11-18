@@ -88,6 +88,8 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Wolverine outbox with one schema per tenant: confirm messages are stored and delivered in the right tenant and never cross tenants. Result: works with the envelope tables in one shared schema, see [ADR 0002](docs/adr/0002-wolverine-outbox-with-tenant-schemas.md).
 - [x] Cost of `modular` against `clean` for a minimal project: number of projects, build time and steps to add one endpoint. Result: small build cost, `clean` stays the default, see [ADR 0003](docs/adr/0003-cost-of-modular-against-clean.md).
 
+- [x] Two architectures from one template source: file exclusion by architecture, conditional regions in the solution, a project file and the README, and a module name that renames files and folders. Result: all of it works as planned, see [ADR 0006](docs/adr/0006-two-architectures-one-template-source.md).
+
 ## Phase 1. Backend core
 
 - [x] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
