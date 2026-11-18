@@ -7,21 +7,28 @@
     <File Path="nuget.config" />
   </Folder>
   <Folder Name="/src/">
+<!--#if (modular) -->
+<!--#else -->
     <Project Path="src/MyApp.Domain/MyApp.Domain.csproj" />
     <Project Path="src/MyApp.Contracts/MyApp.Contracts.csproj" />
     <Project Path="src/MyApp.Resources/MyApp.Resources.csproj" />
     <Project Path="src/MyApp.Application/MyApp.Application.csproj" />
     <Project Path="src/MyApp.Infrastructure/MyApp.Infrastructure.csproj" />
+<!--#endif -->
     <Project Path="src/MyApp.Api/MyApp.Api.csproj" />
   </Folder>
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Domain/MyApp.BuildingBlocks.Domain.csproj" />
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Application/MyApp.BuildingBlocks.Application.csproj" />
+    <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Infrastructure/MyApp.BuildingBlocks.Infrastructure.csproj" />
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Web/MyApp.BuildingBlocks.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/MyApp.BuildingBlocks.Tests/MyApp.BuildingBlocks.Tests.csproj" />
+<!--#if (modular) -->
+<!--#else -->
     <Project Path="tests/MyApp.Domain.Tests/MyApp.Domain.Tests.csproj" />
+<!--#endif -->
     <Project Path="tests/MyApp.Api.Tests/MyApp.Api.Tests.csproj" />
   </Folder>
 </Solution>

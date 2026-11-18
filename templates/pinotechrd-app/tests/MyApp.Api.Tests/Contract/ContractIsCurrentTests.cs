@@ -116,6 +116,6 @@ public class ContractIsCurrentTests : IClassFixture<ContractIsCurrentTests.RealA
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development)
                 // A valid connection string that is never opened: the document needs the services, not a database.
-                .UseSetting(MyApp.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString);
+                .UseSetting(MyApp.BuildingBlocks.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString);
     }
 }

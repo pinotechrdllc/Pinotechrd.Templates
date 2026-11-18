@@ -95,7 +95,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
 - [x] Architecture test that enforces the dependency direction between layers.
 - [ ] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton).
-- [ ] `--architecture modular` must not silently generate the `clean` skeleton: select content by architecture in `template.json` (review of the skeleton).
+- [x] `--architecture` selects content: `clean` keeps the layer projects, `modular` keeps the Host and the building blocks. The database plumbing is the shared building block `BuildingBlocks.Infrastructure`.
 - [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
 - [x] Building blocks, part 2: the web building block (with the API host task below).
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.

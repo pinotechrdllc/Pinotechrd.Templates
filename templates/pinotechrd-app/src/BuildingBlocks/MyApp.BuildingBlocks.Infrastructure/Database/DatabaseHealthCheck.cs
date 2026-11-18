@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
-namespace MyApp.Infrastructure.Database;
+namespace MyApp.BuildingBlocks.Infrastructure.Database;
 
 /// <summary>
 /// Reports whether PostgreSQL answers: it takes a connection from the shared <see cref="NpgsqlDataSource"/> and runs

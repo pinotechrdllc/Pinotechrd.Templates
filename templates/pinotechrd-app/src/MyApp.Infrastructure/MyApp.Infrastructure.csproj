@@ -5,12 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
-    <PackageReference Include="Npgsql" />
-  </ItemGroup>
-
-  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\MyApp.Application\MyApp.Application.csproj" />
   </ItemGroup>
 

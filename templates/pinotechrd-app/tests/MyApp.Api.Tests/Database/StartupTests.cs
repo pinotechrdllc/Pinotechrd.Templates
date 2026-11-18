@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using MyApp.Api.Tests.Support;
 using MyApp.BuildingBlocks.Web;
-using MyApp.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 
 namespace MyApp.Api.Tests.Database;
 
