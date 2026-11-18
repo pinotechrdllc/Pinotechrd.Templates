@@ -1,2 +1,21 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="nuget.config" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MyApp.Domain/MyApp.Domain.csproj" />
+    <Project Path="src/MyApp.Contracts/MyApp.Contracts.csproj" />
+    <Project Path="src/MyApp.Resources/MyApp.Resources.csproj" />
+    <Project Path="src/MyApp.Application/MyApp.Application.csproj" />
+    <Project Path="src/MyApp.Infrastructure/MyApp.Infrastructure.csproj" />
+    <Project Path="src/MyApp.Api/MyApp.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MyApp.Domain.Tests/MyApp.Domain.Tests.csproj" />
+    <Project Path="tests/MyApp.Api.Tests/MyApp.Api.Tests.csproj" />
+  </Folder>
 </Solution>

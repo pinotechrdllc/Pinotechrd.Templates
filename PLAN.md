@@ -88,8 +88,10 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 ## Phase 1. Backend core
 
-- [ ] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
-- [ ] Architecture test that enforces the dependency direction between layers.
+- [x] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
+- [x] Architecture test that enforces the dependency direction between layers.
+- [ ] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton).
+- [ ] `--architecture modular` must not silently generate the `clean` skeleton: select content by architecture in `template.json` (review of the skeleton).
 - [ ] Building blocks shared by both architectures: domain base types, application pipeline, infrastructure plumbing.
 - [ ] `modular` architecture: Host, module layout, composition of modules, the `Access` and `Sample` modules.
 - [ ] Architecture tests for `modular`: a module sees only other modules' `Contracts`; no cross-module table access.
