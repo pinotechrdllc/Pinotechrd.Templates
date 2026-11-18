@@ -7,8 +7,9 @@
   The template source must build as it is (it lists every architecture's projects). A case passes
   when the project is generated with the layout of its architecture, the placeholder name is fully
   replaced, no conditional marker or template configuration is left, its solution lists exactly its
-  projects, it builds without warnings and its tests pass. Invalid option values must be rejected. The package must hold
-  only the template content. The modular case then adds the endpoint and tests of scripts/fixtures/module-endpoint to its
+  projects, it builds without warnings, its first restore writes a lock file beside every project, a locked restore in
+  CI mode (NuGet audit findings as errors) passes and its tests pass. Invalid option values must be rejected. The
+  package must hold only the template content, and no lock file. The modular case then adds the endpoint and tests of scripts/fixtures/module-endpoint to its
   module, and must report the contract as stale, regenerate it, build and pass its tests again.
 .PARAMETER Keep
   Keep the working directory after the run, for inspection.
@@ -109,6 +110,39 @@ function Remove-BuildOutput([string]$Root) {
     }
 }
 
+# The NuGet lock files written by a restore, one beside each project file (not under node_modules).
+function Get-LockFile([string]$Root) {
+    Get-ChildItem -LiteralPath $Root -Recurse -File -Force -Filter 'packages.lock.json' |
+        Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' }
+}
+
+# The template ships no lock file (the first restore of a generated project writes them), so the in-place build must
+# not leave any behind for the package or the repository.
+function Remove-LockFile([string]$Root) {
+    foreach ($file in Get-LockFile $Root) {
+        try { Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop }
+        catch { Write-Warning "Could not remove $($file.FullName): $($_.Exception.Message)" }
+    }
+}
+
+# The path a generated project follows: its first restore writes a lock file beside every project, and a CI build then
+# restores in locked mode with NuGet audit findings as errors. --force makes the restore evaluate every project again
+# (otherwise it is skipped as up to date and neither the lock files nor the audit are checked).
+function Assert-LockedRestore([string]$Solution) {
+    $root = Split-Path -Parent $Solution
+    $projects = Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.csproj' |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' }
+    $unlocked = $projects | Where-Object { -not (Test-Path -LiteralPath (Join-Path $_.DirectoryName 'packages.lock.json')) }
+    if ($unlocked) { throw "Projects without a packages.lock.json after the first restore: $($unlocked.Name -join ', ')" }
+    $stray = Get-LockFile $root | Where-Object { $_.DirectoryName -notin $projects.DirectoryName }
+    if ($stray) { throw "Lock files not beside a project: $($stray.FullName -join ', ')" }
+
+    Invoke-Checked 'Locked restore in CI mode' {
+        dotnet restore $Solution --locked-mode --force -p:ContinuousIntegrationBuild=true --nologo --verbosity quiet
+    }
+    Write-Host "Locked restore passed for $($projects.Count) projects."
+}
+
 function Assert-Rejected([string]$What, [string[]]$Options) {
     $output = Join-Path $work ('rejected-' + [Guid]::NewGuid().ToString('N'))
     dotnet new pinotechrd-app --name $projectName --output $output @Options --debug:custom-hive $hive *> $null
@@ -201,6 +235,9 @@ function Assert-PackageContent([string]$Package) {
     if ($outside) { throw "The package has content outside templates/: $($outside -join ', ')" }
     $leaked = $entries | Where-Object { $_ -like 'scripts/*' -or $_ -like '*/scripts/*' -or $_ -like '*/fixtures/module-endpoint/*' }
     if ($leaked) { throw "The package has files of the test scripts: $($leaked -join ', ')" }
+    # A lock file of the in-place build names the placeholder projects of both layouts: never template content.
+    $locks = $entries | Where-Object { $_ -like '*.lock.json' }
+    if ($locks) { throw "The package has lock files: $($locks -join ', ')" }
 }
 
 # Copies every *.cs file under $Source to the same relative path under $Destination, replacing the placeholders (keys of
@@ -287,8 +324,8 @@ function Invoke-ModuleEndpointFixture([string]$Root, [hashtable]$Case) {
 try {
     New-Item -ItemType Directory -Path $work | Out-Null
 
-    # The source tree lists every architecture's projects, so it builds as it is. Its build output is removed
-    # afterwards so it never reaches the package or the repository.
+    # The source tree lists every architecture's projects, so it builds as it is. Its build output and the lock files
+    # its restore writes are removed afterwards so they never reach the package or the repository.
     Write-Host '== Build the template source in place'
     try {
         Invoke-Checked 'In-place build' {
@@ -297,6 +334,7 @@ try {
     }
     finally {
         Remove-BuildOutput $template
+        Remove-LockFile $template
     }
 
     Write-Host '== Pack'
@@ -324,12 +362,17 @@ try {
         Assert-Layout $output $case.Architecture $case.Module
         if ($case.Architecture -eq 'modular') { Assert-ModuleComposed $output $case.Module }
         Assert-SolutionMatchesProjects $solution
+        $shipped = Get-LockFile $output
+        if ($shipped) { throw "The generated project has lock files before its first restore: $($shipped.FullName -join ', ')" }
 
         # Built from inside the output, so the SDK is the one its own global.json pins, as for a user.
         Push-Location -LiteralPath $output
         try {
             Write-Host "SDK: $(dotnet --version)"
             Invoke-Checked "Building $($case.Name)" { dotnet build $solution --configuration Release --nologo -warnaserror }
+            $lockTimer = [Diagnostics.Stopwatch]::StartNew()
+            Assert-LockedRestore $solution
+            Write-Host ("Lock file checks took {0:N1} s." -f $lockTimer.Elapsed.TotalSeconds)
             Invoke-Checked "Testing $($case.Name)" { dotnet test $solution --configuration Release --no-build --nologo }
             if ($case.Fixture) { Invoke-ModuleEndpointFixture $output $case }
         }

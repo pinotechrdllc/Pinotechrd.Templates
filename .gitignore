@@ -32,6 +32,8 @@ bld/
 *.nuget.targets
 project.lock.json
 project.assets.json
+# The template ships no lock file; an in-place build of the template writes them (see docs/adr/0007-lock-files-and-nuget-audit.md).
+templates/**/packages.lock.json
 
 ## [User-specific]
 *.rsuser

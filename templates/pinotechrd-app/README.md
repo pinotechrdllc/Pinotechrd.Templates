@@ -57,6 +57,25 @@ Run the API with `dotnet run --project src/MyApp.Api`. It needs a PostgreSQL con
 
 The tests need Docker: they start PostgreSQL in a container, and they fail, rather than skip, when Docker is not running.
 
+## Dependencies
+
+Package versions live in one file, `Directory.Packages.props`; project files name packages without a version. Transitive pinning is on, so a version listed there also applies when the package arrives through another package.
+
+- **Lock files.** Every project has a `packages.lock.json` with the exact version and content hash of every package it uses, direct and transitive. The first restore of a new project writes them. Commit them, and commit their changes together with every version change. They have the same content on Windows and Linux (only the line endings differ, and git normalizes those).
+- **Locked restore in CI.** When `CI` or `TF_BUILD` is `true` (GitHub Actions and Azure Pipelines set them), or with `-p:ContinuousIntegrationBuild=true`, restore runs in locked mode: if a project file or `Directory.Packages.props` no longer matches the lock files, it fails with `NU1004` instead of resolving other versions. Locked mode writes a missing lock file instead of failing, so the pipeline should also fail when restore leaves the working tree changed (`git status --porcelain` not empty).
+- **Updating a package.** Change its version in `Directory.Packages.props` (or run `dotnet package update <Id>`), run `dotnet restore` outside CI to update the lock files, build, test, and commit both. A new package gets a `PackageVersion` entry there and a `PackageReference` without a version in the project.
+- **Publishing for a runtime.** A locked restore with `-r linux-x64` fails with `NU1004` unless the lock files already have that runtime, in the published project and in every project it references: set `RuntimeIdentifiers` for all of them (in `Directory.Build.props`) and restore once before committing the lock files.
+
+### Security advisories
+
+Every restore checks every package, direct and transitive, against the GitHub Advisory Database through nuget.org (NuGet audit, at every severity). A finding is a warning from `NU1901` (low) to `NU1904` (critical) with the link to the advisory. `NU1900` or `NU1905` means the vulnerability data could not be read, for example offline. All of these are warnings in a local build, so a new advisory does not stop unrelated work, and errors in CI, so nothing merges with a known advisory or an audit that did not run. When one appears:
+
+1. A package you reference: raise its version in `Directory.Packages.props` to a release that fixes the advisory (`dotnet package update --vulnerable` does it for every affected package).
+2. A transitive package: `dotnet nuget why MyApp.slnx <Id>` shows which package brings it. Prefer a release of that package that no longer depends on the affected version. Otherwise add a `PackageVersion` for the affected package, at the fixed version, to `Directory.Packages.props`: transitive pinning makes every project use it (a pin can raise a version, not lower it).
+3. No fix released: read the advisory. If it does not apply to how the project uses the package, suppress that advisory alone with `<NuGetAuditSuppress Include="https://github.com/advisories/GHSA-..." />` in an `ItemGroup` of `Directory.Build.props`, with a comment that says why, and remove it when a fix ships.
+
+Then restore, build, test and commit the updated lock files.
+
 ## Database
 
 The application uses PostgreSQL through Npgsql. `src/BuildingBlocks/MyApp.BuildingBlocks.Infrastructure/Database/` owns the connection: one `NpgsqlDataSource` for the whole process, a singleton disposed with the host, which holds the connection pool. Every later piece of data access (EF Core, the tenant schema selection) is built on that data source.

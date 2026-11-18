@@ -27,7 +27,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="templates\**\*" Exclude="templates\**\bin\**;templates\**\obj\**;templates\**\node_modules\**;templates\**\dist\**;templates\**\.vs\**;templates\**\TestResults\**;templates\**\*.user" />
+    <Content Include="templates\**\*" Exclude="templates\**\bin\**;templates\**\obj\**;templates\**\node_modules\**;templates\**\dist\**;templates\**\.vs\**;templates\**\TestResults\**;templates\**\*.user;templates\**\packages.lock.json" />
     <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 

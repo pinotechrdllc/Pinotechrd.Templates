@@ -95,7 +95,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 - [x] `clean` architecture: solution, the six projects and `Directory.Build.props` (warnings as errors, nullable, analyzers), central package management, `global.json`, `.editorconfig`.
 - [x] Architecture test that enforces the dependency direction between layers.
-- [ ] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton).
+- [x] Supply chain in the generated project: package lock files with locked restore in CI, and an explicit decision on NuGet audit warnings as errors (review of the skeleton). Result: every project writes a lock file on its first restore (the template ships none), CI builds restore in locked mode, and NuGet audit findings are warnings locally and errors in CI, see [ADR 0007](docs/adr/0007-lock-files-and-nuget-audit.md).
 - [x] `--architecture` selects content: `clean` keeps the layer projects, `modular` keeps the Host and the building blocks. The database plumbing is the shared building block `BuildingBlocks.Infrastructure`.
 - [x] Building blocks, part 1: domain base types, the `Result` error model and handler registration.
 - [x] Building blocks, part 2: the web building block (with the API host task below).
@@ -180,9 +180,9 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 ## Phase 8. Delivery
 
-- [ ] Dockerfiles for the API and the web.
+- [ ] Dockerfiles for the API and the web. The API image copies the lock files and restores with `-p:ContinuousIntegrationBuild=true` (ADR 0007); `RuntimeIdentifiers` set for every project if it publishes for a runtime.
 - [ ] Compose deployment: PostgreSQL, API, web, reverse proxy, `.env.example`. The reverse proxy does not expose `/health/*` to the internet (the readiness probe is public, unlimited and runs the dependency checks). It also strips `traceparent`, `tracestate` and `baggage` from public requests.
-- [ ] Workflows of the generated project: CI, CodeQL, dependency review, deploy.
+- [ ] Workflows of the generated project: CI, CodeQL, dependency review, deploy. CI fails when restore leaves the working tree changed (`git status --porcelain` not empty), because locked mode writes a missing lock file instead of failing (ADR 0007).
 - [ ] `scripts/verify.ps1`, the same gate CI runs.
 - [ ] Kubernetes manifests: deployments, probes, autoscaling, migrator job.
 - [ ] Terraform for GCP: network, GKE, Cloud SQL, Memorystore, Artifact Registry, Secret Manager.
