@@ -128,9 +128,11 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
 - [ ] The security DbContext uses the one shared data source, not a data source of its own.
 - [ ] Wire `Pinotechrd.Security`: `AddPinotechrdSecurity`, `UseTenantResolution`, the DbContext on `PinotechrdSecurityDbContext`.
-- [ ] The `search_path` interceptor tolerates the tenant-less readiness probe, and the tracing filter that matches the text `SELECT 1` no longer hides application queries.
-- [ ] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
-- [ ] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
+- [x] The `search_path` interceptor tolerates the tenant-less readiness probe, and the tracing filter that matches the text `SELECT 1` no longer hides application queries.
+- [x] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
+- [x] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
+- [ ] Decision pending (project owner): a database role per tenant, assumed by the connection when it is bound and verified, so the database refuses schema-qualified access to another tenant and writes to the shared `extensions` schema. Measured in review: with one role owning every schema, schema-qualified raw SQL reads another tenant, and the statement check is a guard against mistakes, not a boundary. It does not stop hostile SQL (the shared login can reset the role); only a login per tenant does.
+- [ ] Shared (catalog) migrations: a registration and a migrator entry point for a context that is not tenant-scoped, run once before the tenants under a global lock (shape described in the review of the tenant persistence unit).
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
 - [ ] Refresh token store in the database, replacing the in-memory default.

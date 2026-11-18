@@ -19,7 +19,12 @@ namespace MyApp.BuildingBlocks.Infrastructure.Database;
 /// <para>
 /// A failure is reported with a fixed description and without the exception, because Npgsql's messages name the
 /// host, the port and the user; the description holds only the exception type and, for a server error, its SQLSTATE
-/// code. The query produces no span (see <see cref="DatabaseRegistration"/>).
+/// code. The query produces no span (see <see cref="DatabaseRegistration"/>): it runs as a command of a type private
+/// to this class, and the tracing filter skips that type, never a statement text, so an application query with the
+/// same text as <see cref="Query"/> is still traced.
+/// </para>
+/// <para>
+/// It uses the data source directly, not a tenant context, so it needs no tenant and sees no tenant's schema.
 /// </para>
 /// </summary>
 /// <param name="dataSource">The shared data source.</param>
@@ -56,8 +61,8 @@ public sealed class DatabaseHealthCheck(NpgsqlDataSource dataSource) : IHealthCh
         }
     }
 
-    /// <summary>Whether <paramref name="command"/> is the probe's own statement, which is not traced.</summary>
-    internal static bool IsProbeCommand(NpgsqlCommand command) => string.Equals(command.CommandText, Query, StringComparison.Ordinal);
+    /// <summary>Whether <paramref name="command"/> is the probe's own command, which is not traced.</summary>
+    internal static bool IsProbeCommand(NpgsqlCommand command) => command is ProbeCommand;
 
     private Task<Exception?> CurrentOrNewAttempt(TimeSpan timeout)
     {
@@ -78,8 +83,10 @@ public sealed class DatabaseHealthCheck(NpgsqlDataSource dataSource) : IHealthCh
         using var deadline = timeout > TimeSpan.Zero && timeout != Timeout.InfiniteTimeSpan ? new CancellationTokenSource(timeout) : null;
         try
         {
-            await using var command = dataSource.CreateCommand(Query);
-            await command.ExecuteScalarAsync(deadline?.Token ?? CancellationToken.None).ConfigureAwait(false);
+            var token = deadline?.Token ?? CancellationToken.None;
+            await using var connection = await dataSource.OpenConnectionAsync(token).ConfigureAwait(false);
+            await using var command = new ProbeCommand(connection);
+            await command.ExecuteScalarAsync(token).ConfigureAwait(false);
             return null;
         }
 #pragma warning disable CA1031 // Any failure means the database is not usable; the exception must not reach the report.
@@ -89,6 +96,9 @@ public sealed class DatabaseHealthCheck(NpgsqlDataSource dataSource) : IHealthCh
             return exception;
         }
     }
+
+    // The marker of the probe's command for the tracing filter: no other code can create one.
+    private sealed class ProbeCommand(NpgsqlConnection connection) : NpgsqlCommand(Query, connection);
 
     private static string Describe(Exception exception)
     {
