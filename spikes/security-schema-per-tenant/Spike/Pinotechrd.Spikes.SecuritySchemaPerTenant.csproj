@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Throwaway spike: the published Pinotechrd.Security package on one PostgreSQL schema per tenant. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Pinotechrd.Spikes.SecuritySchemaPerTenant</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- EF Core internal APIs (model differ, SQL generator) are used on purpose to print the migration script. -->
+    <!-- ASP0000: the console questions build their own service providers on purpose. -->
+    <NoWarn>$(NoWarn);EF1001;ASP0000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The published packages from nuget.org, never the library source. -->
+    <PackageReference Include="Pinotechrd.Security" Version="1.2.0-preview.2" />
+    <PackageReference Include="Pinotechrd.Security.Abstractions" Version="1.2.0-preview.2" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.15" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.17.0" />
+  </ItemGroup>
+
+</Project>
