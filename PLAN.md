@@ -134,7 +134,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
 - [x] Shared (catalog) migrations: a registration and a migrator entry point for a context that is not tenant-scoped, run once before the tenants under a global lock (shape described in the review of the tenant persistence unit). See [ADR 0010](docs/adr/0010-migrator-and-catalog-migrations.md).
 - [x] Migrations: shared and per tenant, run by a separate migrator command, never at API start. `src/MyApp.Migrator`, with the initial Access and catalog migrations (ADR 0010).
-- [ ] Tenant provisioning: create the schema, migrate it and seed it.
+- [x] Tenant provisioning: the catalog row, then the schema created and migrated, idempotent by slug and safe under concurrency; `MyApp.Migrator provision`. Seeding stays a task of its own. See [ADR 0011](docs/adr/0011-tenant-provisioning.md).
 - [ ] A database role per tenant, built with tenant provisioning (decided 2026-11-18 by the project owner on my recommendation). Provisioning creates a `NOLOGIN` role that owns or is granted only its tenant's schema and `USAGE` on `extensions`; the connection guard assumes that role in the same statement that binds the schema and verifies it with `current_user`; the application's login keeps no direct rights on tenant schemas; the migrator holds the administration rights. Why: review measured that with one role owning every schema, schema-qualified SQL reads another tenant and a table written to `extensions` by one tenant is read by another; the role makes PostgreSQL refuse both. Limit, stated in the README: it stops mistakes, not hostile SQL (the shared login can reset the role); the defence against that is having no SQL injection, and only a login per tenant (rejected for cost: one server connection per tenant) would be a hard boundary. ADR records it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
 - [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
@@ -144,6 +144,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] The `Access` module (now in both architectures, ADR 0009): home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
 - [x] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
+- [ ] The API refuses a tenant that is provisioning, suspended or cancelled (status read from the catalog after authentication), so a token for such a tenant never reaches its schema (ADR 0011).
 - [ ] Tenants endpoints: create, activate, suspend.
 - [ ] Seeding: first tenant and bootstrap administrator from configuration.
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.

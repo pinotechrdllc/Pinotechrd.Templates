@@ -1,9 +1,14 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MyApp.BuildingBlocks.Domain;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
+using MyApp.Modules.Access.Application.Tenants;
+using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
 using Npgsql;
 
 namespace MyApp.Migrator;
@@ -12,7 +17,8 @@ namespace MyApp.Migrator;
 /// The migrator command: reads its settings (command line, environment, user secrets in Development, appsettings),
 /// validates them, migrates the shared catalog and then every tenant under one global lock, writes a report and returns
 /// the exit code. The report has one line for each shared schema, one per tenant (its id and the migrations applied) and
-/// a summary; it never holds a connection string or a password.
+/// a summary; it never holds a connection string or a password. With the <see cref="ProvisionCommand"/> command it
+/// provisions one tenant instead (ADR 0011), once the catalog is up to date, with the same exit codes.
 /// </summary>
 public static class MigratorHost
 {
@@ -31,6 +37,12 @@ public static class MigratorHost
     /// </summary>
     public const int Cancelled = 130;
 
+    /// <summary>
+    /// The command that provisions one tenant: <c>provision --Provision:Slug=acme --Provision:Name=Acme
+    /// --Provision:SubscriptionId=&lt;id&gt;</c>. Without a command the migrator migrates.
+    /// </summary>
+    public const string ProvisionCommand = "provision";
+
     /// <summary>Runs the migrator.</summary>
     /// <param name="args">The command-line arguments, such as <c>--Migrator:MaxDegreeOfParallelism=2</c>.</param>
     /// <param name="report">Where the report is written.</param>
@@ -43,6 +55,29 @@ public static class MigratorHost
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(report);
+
+        // A first argument that is not a setting (--Key=value, /Key=value or Key=value) is a command, stripped before the
+        // configuration reads the rest. Unknown commands are refused without quoting them.
+        var provision = false;
+        if (args.Length > 0 && IsCommand(args[0]))
+        {
+            if (!string.Equals(args[0], ProvisionCommand, StringComparison.Ordinal))
+            {
+                await report.WriteLineAsync($"Invalid settings: unknown command. The only command is '{ProvisionCommand}'; without one, the migrator migrates.")
+                    .ConfigureAwait(false);
+                return InvalidSettings;
+            }
+
+            provision = true;
+            args = args[1..];
+        }
+
+        // A misplaced command must not silently become a full migration: the rest must be settings only.
+        if (ArgumentsFailure(args, provision) is { } refused)
+        {
+            await report.WriteLineAsync($"Invalid settings: {refused}").ConfigureAwait(false);
+            return InvalidSettings;
+        }
 
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -59,7 +94,20 @@ public static class MigratorHost
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
         builder.Logging.AddFilter("Microsoft.Extensions.Hosting", LogLevel.None);
         builder.Services.Configure<ConsoleLifetimeOptions>(o => o.SuppressStatusMessages = true);
+        // Provision settings from any source (the environment's Provision__Slug included) belong to the provision command
+        // only: without it they would be ignored and the migrator would migrate.
+        if (!provision && builder.Configuration.GetSection(MigratorComposition.ProvisionSectionName).Exists())
+        {
+            await report.WriteLineAsync($"Invalid settings: the '{MigratorComposition.ProvisionSectionName}' settings are only read by the '{ProvisionCommand}' command, which must be the first argument.")
+                .ConfigureAwait(false);
+            return InvalidSettings;
+        }
+
         builder.AddMigrations();
+        if (provision)
+        {
+            builder.AddProvisioning();
+        }
 
         using var host = builder.Build();
         try
@@ -86,6 +134,12 @@ public static class MigratorHost
         {
             var stopping = host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping;
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping);
+            if (provision)
+            {
+                var request = host.Services.GetRequiredService<IOptions<ProvisionOptions>>().Value.ToRequest();
+                return await ProvisionAsync(host.Services, request, report, linked.Token).ConfigureAwait(false);
+            }
+
             var parallelism = host.Services.GetRequiredService<IOptions<MigratorOptions>>().Value.MaxDegreeOfParallelism;
             return await MigrateAsync(host.Services, parallelism, report, linked.Token).ConfigureAwait(false);
         }
@@ -137,6 +191,112 @@ public static class MigratorHost
             .ConfigureAwait(false);
         return result.Succeeded ? Success : MigrationFailed;
     }
+
+    // Provisions one tenant once the catalog is up to date. Not under the global lock: the tenant's own migration lock
+    // keeps it apart from a concurrent migration of that tenant.
+    private static async Task<int> ProvisionAsync(
+        IServiceProvider services, ProvisionTenantRequest request, TextWriter report, CancellationToken cancellationToken)
+    {
+        Result<ProvisionedTenant> result;
+        try
+        {
+            var scope = services.CreateAsyncScope();
+            await using (scope.ConfigureAwait(false))
+            {
+                var catalog = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+                if ((await catalog.Database.GetPendingMigrationsAsync(cancellationToken).ConfigureAwait(false)).Any())
+                {
+                    await report.WriteLineAsync("Provisioning failed: the catalog is not up to date. Run the migrator without a command (migrate) first.")
+                        .ConfigureAwait(false);
+                    return MigrationFailed;
+                }
+
+                result = await scope.ServiceProvider.GetRequiredService<ITenantProvisioner>().ProvisionAsync(request, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            await report.WriteLineAsync($"Provisioning failed: {Describe(exception)}").ConfigureAwait(false);
+            return MigrationFailed;
+        }
+        catch (OperationCanceledException)
+        {
+            await report.WriteLineAsync("Provisioning cancelled: what finished stays; run the same command again to complete it.").ConfigureAwait(false);
+            return Cancelled;
+        }
+
+        if (result.IsFailure)
+        {
+            // Error messages never quote the request's values.
+            await report.WriteLineAsync($"Provisioning failed: {result.Error.Code}: {result.Error.Message}").ConfigureAwait(false);
+            return result.Error.Kind == ErrorKind.Validation ? InvalidSettings : MigrationFailed;
+        }
+
+        var tenant = result.Value;
+        await report.WriteLineAsync(Invariant(
+                $"Tenant {tenant.TenantId} ({tenant.Slug}): {(tenant.AlreadyProvisioned ? "already provisioned" : "provisioned")}."))
+            .ConfigureAwait(false);
+        return Success;
+    }
+
+    private static bool IsCommand(string argument) =>
+        argument.Length > 0 && argument[0] is not '-' and not '/' && !argument.Contains('=', StringComparison.Ordinal);
+
+    // Why the arguments after the command (or all of them, without one) are refused; null when they are settings only.
+    // They are read as the command-line configuration reads them: --Key=value, /Key=value, Key=value, or --Key / /Key
+    // followed by its value. Anything else would be ignored by it. No message quotes an argument.
+    private static string? ArgumentsFailure(string[] args, bool provision)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var argument = args[i];
+            if (string.Equals(argument, ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"the '{ProvisionCommand}' command must be the first argument.";
+            }
+
+            var prefix = argument.StartsWith("--", StringComparison.Ordinal) ? 2 : argument.StartsWith('/') ? 1 : 0;
+            if (prefix == 0 && (argument.Length == 0 || argument[0] == '-' || !argument.Contains('=', StringComparison.Ordinal)))
+            {
+                return "an argument is neither a command nor a setting; settings are --Key=value.";
+            }
+
+            var separator = argument.IndexOf('=', StringComparison.Ordinal);
+            var key = separator < 0 ? argument[prefix..] : argument[prefix..separator];
+            if (string.Equals(key, ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+            {
+                return $"'{ProvisionCommand}' is a command, not a setting; it must be the first argument.";
+            }
+
+            if (!provision && IsProvisionSetting(key))
+            {
+                return $"the '{MigratorComposition.ProvisionSectionName}' settings are only read by the '{ProvisionCommand}' command, which must be the first argument.";
+            }
+
+            if (separator < 0)
+            {
+                // --Key value: the next argument is the value. A last --Key without one would be ignored.
+                if (i + 1 >= args.Length)
+                {
+                    return "a setting has no value; settings are --Key=value.";
+                }
+
+                if (string.Equals(args[i + 1], ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+                {
+                    return $"the '{ProvisionCommand}' command must be the first argument.";
+                }
+
+                i++;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsProvisionSetting(string key) =>
+        key.StartsWith(MigratorComposition.ProvisionSectionName + ":", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith(MigratorComposition.ProvisionSectionName + "__", StringComparison.OrdinalIgnoreCase);
 
     private static Task ReportCancelledAsync(TextWriter report) =>
         report.WriteLineAsync("Migration cancelled: what finished stays applied; run the migrator again to complete the rest.");

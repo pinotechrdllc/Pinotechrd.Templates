@@ -19,6 +19,31 @@ internal static class CatalogSeed
         await InsertAsync(connectionString, "tenants", new() { ["id"] = tenantId, ["subscription_id"] = subscription });
     }
 
+    /// <summary>Adds a plan and a subscription of that plan and returns the subscription's id.</summary>
+    public static async Task<Guid> AddSubscriptionAsync(string connectionString)
+    {
+        var plan = Guid.NewGuid();
+        var subscription = Guid.NewGuid();
+        await InsertAsync(connectionString, "subscription_plans", new() { ["id"] = plan });
+        await InsertAsync(connectionString, "system_subscriptions", new() { ["id"] = subscription, ["plan_id"] = plan });
+        return subscription;
+    }
+
+    /// <summary>Adds a tenant row with the given id, identifier, name and status (the integer of the status enum), and no schema.</summary>
+    public static Task AddTenantRowAsync(
+        string connectionString, Guid tenantId, Guid subscriptionId, string identifier, string name, int status) =>
+        InsertAsync(
+            connectionString,
+            "tenants",
+            new()
+            {
+                ["id"] = tenantId,
+                ["subscription_id"] = subscriptionId,
+                ["identifier"] = identifier,
+                ["name"] = name,
+                ["status"] = status,
+            });
+
     private static async Task InsertAsync(string connectionString, string table, Dictionary<string, object> given)
     {
         await using var connection = await Db.OpenAsync(connectionString);

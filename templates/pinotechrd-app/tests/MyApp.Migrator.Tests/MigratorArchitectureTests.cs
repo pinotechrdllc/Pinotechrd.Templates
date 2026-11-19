@@ -75,6 +75,45 @@ public class MigratorArchitectureTests
         Assert.DoesNotContain(references, name => name.StartsWith(Root, StringComparison.Ordinal) && name.EndsWith(".Endpoints", StringComparison.Ordinal));
     }
 
+    private static string AccessApplicationProject() =>
+        Directory.EnumerateFiles(Path.Combine(SolutionRoot(), "src"), Root + ".Modules.Access.Application.csproj", SearchOption.AllDirectories)
+            .Single();
+
+    private static bool IsSecurityOrEfCore(string name) =>
+        name.StartsWith("Pinotechrd.Security", StringComparison.OrdinalIgnoreCase)
+        || name.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("EntityFrameworkCore", StringComparison.OrdinalIgnoreCase);
+
+    // Breaks when the Access application layer (or a project it reaches) declares a package of the security library or EF Core,
+    // or reaches a project that does (infrastructure).
+    [Fact]
+    public void AccessApplicationProjectsDeclareNeitherTheSecurityLibraryNorEfCore()
+    {
+        var project = AccessApplicationProject();
+        var projects = new List<string> { project };
+        projects.AddRange(Closure(project).Select(name => Directory.EnumerateFiles(Path.Combine(SolutionRoot(), "src"), name + ".csproj", SearchOption.AllDirectories).Single()));
+
+        Assert.True(projects.Count > 1);
+        var packages = projects
+            .SelectMany(p => XDocument.Load(p).Descendants("PackageReference").Select(e => (string)e.Attribute("Include")!))
+            .ToList();
+        Assert.DoesNotContain(packages, IsSecurityOrEfCore);
+        Assert.DoesNotContain(Closure(project), name => name.EndsWith(".Infrastructure", StringComparison.Ordinal));
+    }
+
+    // Breaks when the compiled Access application layer references the security library or EF Core.
+    [Fact]
+    public void AccessApplicationAssemblyReferencesNeitherTheSecurityLibraryNorEfCore()
+    {
+        var assembly = System.Reflection.Assembly.Load(Root + ".Modules.Access.Application");
+
+        var references = assembly.GetReferencedAssemblies().Select(a => a.Name!).ToList();
+
+        Assert.NotEmpty(references);
+        Assert.DoesNotContain(references, IsSecurityOrEfCore);
+        Assert.DoesNotContain(references, name => name.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase));
+    }
+
     // Breaks when the API (directly or through any project it references) depends on the migrator.
     [Fact]
     public void ApiDoesNotReferenceTheMigrator()

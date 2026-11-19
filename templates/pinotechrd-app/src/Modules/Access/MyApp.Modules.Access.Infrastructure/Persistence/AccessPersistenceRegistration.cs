@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
+using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
 using Pinotechrd.Security.Interfaces;
 
@@ -34,8 +35,9 @@ public static class AccessPersistenceRegistration
 
     /// <summary>
     /// Registers the shared catalog context <see cref="CatalogDbContext"/> (<c>AddSharedDbContext</c> in
-    /// <see cref="CatalogDbContext.Schema"/>) and the <see cref="ITenantDirectory"/> that lists the catalog's tenants.
-    /// Only the migrator calls it for now: the API does not reach the catalog.
+    /// <see cref="CatalogDbContext.Schema"/>), the <see cref="ITenantDirectory"/> that lists the catalog's tenants and the
+    /// <see cref="ITenantProvisioner"/>, which needs the tenant migrator (<c>AddDatabaseMigrator</c>). Only the migrator calls
+    /// it for now: the API does not reach the catalog.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -45,6 +47,7 @@ public static class AccessPersistenceRegistration
 
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
         services.TryAddScoped<ITenantDirectory, CatalogTenantDirectory>();
+        services.TryAddScoped<ITenantProvisioner, TenantProvisioner>();
         return services;
     }
 }
