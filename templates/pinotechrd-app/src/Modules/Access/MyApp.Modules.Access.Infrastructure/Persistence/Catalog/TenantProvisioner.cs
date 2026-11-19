@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MyApp.BuildingBlocks.Domain;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Modules.Access.Application.Tenants;
+using MyApp.Modules.Access.Infrastructure.Seeding;
 using Npgsql;
 using Pinotechrd.Security.Entities;
 using Pinotechrd.Security.Enums;
@@ -31,7 +32,35 @@ public sealed class TenantProvisioner(CatalogDbContext catalog, ITenantMigrator 
     private const string ForeignKeyViolation = "23503";
 
     /// <inheritdoc />
-    public async Task<Result<ProvisionedTenant>> ProvisionAsync(ProvisionTenantRequest request, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// The operator's subscription (<see cref="SeedIds.OperatorSubscription"/>) is refused with
+    /// <see cref="TenantErrorCodes.SubscriptionReserved"/> before anything is written: only
+    /// <see cref="ProvisionOperatorAsync"/>, which the bootstrap command calls, provisions a tenant on it.
+    /// </remarks>
+    public Task<Result<ProvisionedTenant>> ProvisionAsync(ProvisionTenantRequest request, CancellationToken cancellationToken = default) =>
+        ProvisionAsync(request, operatorTenant: false, cancellationToken);
+
+    /// <summary>
+    /// Provisions the operator tenant on the operator's subscription (<see cref="SeedIds.OperatorSubscription"/>), the
+    /// only way to put a tenant on it. For the migrator's <c>bootstrap</c> command only, which checks under its own lock
+    /// that the subscription holds no other tenant; not part of <see cref="ITenantProvisioner"/>.
+    /// </summary>
+    /// <param name="request">The operator tenant's slug and name, on the operator's subscription.</param>
+    /// <param name="cancellationToken">Stops the run; what finished stays.</param>
+    /// <returns>The tenant, or why it was not provisioned.</returns>
+    public Task<Result<ProvisionedTenant>> ProvisionOperatorAsync(ProvisionTenantRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.SubscriptionId != SeedIds.OperatorSubscription)
+        {
+            throw new ArgumentException("The operator tenant belongs to the operator subscription.", nameof(request));
+        }
+
+        return ProvisionAsync(request, operatorTenant: true, cancellationToken);
+    }
+
+    private async Task<Result<ProvisionedTenant>> ProvisionAsync(
+        ProvisionTenantRequest request, bool operatorTenant, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -39,6 +68,14 @@ public sealed class TenantProvisioner(CatalogDbContext catalog, ITenantMigrator 
         if (errors.Count > 0)
         {
             return Error.Validation(CommonErrorCodes.ValidationFailed, "The tenant request is not valid.", errors);
+        }
+
+        // Refused before any read or write; the message, which the provision command reports, never quotes the id.
+        if (!operatorTenant && request.SubscriptionId == SeedIds.OperatorSubscription)
+        {
+            return Error.Conflict(
+                TenantErrorCodes.SubscriptionReserved,
+                "The subscription is reserved for the operator tenant, which only the bootstrap command provisions.");
         }
 
         if (!await catalog.SystemSubscriptions.AnyAsync(s => s.Id == request.SubscriptionId, cancellationToken).ConfigureAwait(false))

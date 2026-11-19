@@ -36,3 +36,4 @@ An error is expected, so it never answers 500: that status is reserved for defec
 | `tenant_suspended` | 422 | The tenant is suspended; it is not provisioned until it is activated. | `TenantErrorCodes` |
 | `tenant_cancelled` | 422 | The tenant is cancelled and is never provisioned again. | `TenantErrorCodes` |
 | `tenant_provisioning_failed` | 422 | Creating or migrating the tenant's schema failed; the tenant stays provisioning and a new request resumes it. | `TenantErrorCodes` |
+| `tenant_subscription_reserved` | 409 | The subscription is reserved for the operator tenant, which only the bootstrap command provisions. | `TenantErrorCodes` |

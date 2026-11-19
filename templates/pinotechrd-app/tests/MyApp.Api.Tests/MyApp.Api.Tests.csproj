@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MyApp.Api\MyApp.Api.csproj" />
+    <ProjectReference Include="..\..\src\MyApp.Migrator\MyApp.Migrator.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

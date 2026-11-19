@@ -40,6 +40,33 @@ without a hand-written data migration per permission. The migrator's login is a 
 5. The Access module declares `Access.Users.Read`, `Access.Users.Manage`, `Access.Roles.Read`, `Access.Roles.Manage`
    (`AccessPermissions`); `AddAccessPermissions()` is called by `AccessModule` and by the migrator's composition, so
    both read the same catalogue.
+6. The migrator's `bootstrap` command creates the operator tenant and its first administrator from the `Bootstrap`
+   settings (`Slug`, `Name`, `AdminEmail`, `AdminPassword`). The whole flow runs under a session advisory lock of its
+   own (`operator-bootstrap`), so concurrent runs take turns. Once the catalog is up to date: the plans; the operator's
+   subscription (id `SeedIds.OperatorSubscription`, plan `OPERATOR` by code, inserted on no conflict); a check that the
+   subscription holds no tenant of another slug and is unlinked or linked to this slug's tenant (otherwise exit 1 before
+   anything is provisioned); the tenant, through `TenantProvisioner.ProvisionOperatorAsync`, the only way onto the
+   operator subscription (`ITenantProvisioner`, and so the `provision` command, refuses it with
+   `tenant_subscription_reserved`); the subscription linked to it by an update conditioned on `tenant_name` being empty or
+   already the tenant's id (otherwise exit 1); then the tenant
+   migrated again with `OperatorAdminSeeder` (an `ITenantSeeder` registered only for this command, acting only on the
+   tenant of the `BootstrapTarget` singleton, under the tenant lock, in one transaction): the system role
+   `Administrator` (id `SeedIds.AdministratorRole`) with every permission, the user created through Identity's
+   `UserManager<AccessUser>` (`UserName` = email, email confirmed) when no user has that email, and the membership.
+   An existing user is never changed and its password never reset. When the role already has members and none has
+   that email, nothing is written and the command exits 1 (the message names neither email). Identity's refusals are
+   reported by `IdentityError.Code` only.
+7. Passwords (`AddAccessPasswordPolicy`, shared by `AccessModule` and the bootstrap): Identity V3 hashes (PBKDF2 with
+   HMAC-SHA512), 210 000 iterations; 15 to 256 Unicode scalar values, valid UTF-16, not only white space, and no
+   composition rule (it replaces the package's 8 characters and a digit), checked by `AccessPasswordValidator`, an
+   `IPasswordValidator<AccessUser>` the policy registers; one account per email, the user name being the email, of
+   Identity's default user name characters (set explicitly by the policy). The bootstrap checks its password and email
+   at start (exit 2, before any write) with the policy's own `IsValidPassword` and `IsValidUserEmail`.
+8. The administrator's password comes only from the environment (`Bootstrap__AdminPassword`) or user secrets. On the
+   command line or in any `appsettings*` file it is refused at start (exit 2,
+   `BootstrapOptions.PasswordSourceFailure`). It is checked at start only when present; when absent it is required
+   only if the administrator must be created (exit 2, naming the setting). It and the email never appear in the report,
+   the logs (Identity's log is silenced) or an error.
 
 ## Consequences
 
@@ -48,5 +75,10 @@ without a hand-written data migration per permission. The migrator's login is a 
 - Stale rows (a permission or a plan module no longer declared) stay until removed by hand; removing them is out of
   scope.
 - Library gap: the package links a subscription to its tenant through `system_subscriptions.tenant_name` holding the
-  tenant id, with no foreign key; the operator's subscription follows that convention (bootstrap, next unit).
-- Deploy order: `migrate`, then `bootstrap` for the operator tenant and its first administrator (next unit).
+  tenant id, with no foreign key; the operator's subscription follows that convention.
+- Deploy order: `migrate`, then `bootstrap` for the operator tenant and its first administrator. Running `bootstrap`
+  again with the same email, even with another password, changes nothing; with another email it fails (exit 1) and
+  changes nothing: a second administrator is added through the users endpoints, not the bootstrap. Concurrent runs end
+  with one tenant, one subscription and one administrator; a run with another slug fails without provisioning.
+- The operator subscription is reserved: no other tenant is ever provisioned on it.
+- Out of scope: resetting the administrator's password, protecting the last administrator, breached-password checks.
