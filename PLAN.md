@@ -139,6 +139,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Refresh token store in the database, replacing the in-memory default.
 - [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
 - [ ] One source of truth for claim types: `Pinotechrd.Security` maps the inbound `sub` claim to `ClaimTypes.NameIdentifier`, while the template reads `sub` (`Identity:UserIdClaimType`) and `tenant_id`; the Access unit makes the token handler and the template read the same claim types.
+- [ ] Data Protection keys: persisted in shared storage and encrypted at rest before the real scheme or the library's two-factor tokens use them (on Linux, keys without an encryptor are stored in clear and logged as a warning at start).
 - [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] `modular`: the `Access` module, home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
