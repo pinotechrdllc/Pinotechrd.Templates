@@ -90,7 +90,39 @@ public static class SharedPersistenceRegistration
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        ArgumentNullException.ThrowIfNull(columns);
+        if (columns.Length == 0)
+        {
+            throw new ArgumentException("An application read names at least one column.", nameof(columns));
+        }
+
         services.AddSingleton(new ApplicationRead(schema, table, columns));
+        return services;
+    }
+
+    /// <summary>
+    /// Declares that the application's login inserts rows into <paramref name="schema"/>.<paramref name="table"/> directly,
+    /// giving values for <paramref name="columns"/> only (see <see cref="ApplicationRead"/>): the database migrator grants
+    /// <c>INSERT</c> on those columns on every run, to <c>Migrator:ApplicationRole</c>, and never <c>UPDATE</c> or
+    /// <c>DELETE</c>. An identity column filled by the database needs no grant to be filled; reading it back (an insert
+    /// that returns the new id) needs it declared with <see cref="AddApplicationRead"/>.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="schema">The table's schema, a shared schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="columns">The columns, at least one; every name matches <see cref="TenantSchemaName.Pattern"/>.</param>
+    /// <returns>The same service collection, for chaining.</returns>
+    /// <exception cref="ArgumentException">A name is not valid, or no column is given.</exception>
+    public static IServiceCollection AddApplicationAppend(this IServiceCollection services, string schema, string table, params string[] columns)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(columns);
+        if (columns.Length == 0)
+        {
+            throw new ArgumentException("An application append names at least one column.", nameof(columns));
+        }
+
+        services.AddSingleton(new ApplicationRead(schema, table, [], columns));
         return services;
     }
 

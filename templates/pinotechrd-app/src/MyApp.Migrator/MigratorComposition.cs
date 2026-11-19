@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using MyApp.BuildingBlocks.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.DataProtection;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Application.Tenants;
@@ -13,8 +14,9 @@ using MyApp.Modules.Access.Infrastructure.Seeding;
 namespace MyApp.Migrator;
 
 /// <summary>
-/// What the migrator migrates: the shared data source, the Access module's catalog and tenant contexts and, through the
-/// hooks, the persistence of the other parts of the application. Shared by both architectures, like the API's
+/// What the migrator migrates: the shared data source, the Access module's catalog, the API's Data Protection key ring,
+/// the Access module's tenant contexts and, through the hooks, the persistence of the other parts of the application.
+/// Shared by both architectures, like the API's
 /// <c>BusinessComposition</c>: the parts that differ are partial methods declared here and implemented, when the
 /// architecture has something to add, in a file of its own. A partial method with no implementation is not dead code:
 /// the compiler removes the call.
@@ -49,6 +51,8 @@ public static partial class MigratorComposition
 
         // The catalog first: shared contexts are migrated in registration order, before any tenant.
         services.AddAccessCatalog();
+        // The API's Data Protection key ring, shared by its instances: read and appended by the application's login.
+        services.AddDataProtectionKeyStore();
         services.AddAccessPersistence();
         // What migrate seeds (ADR 0013): the plans in the catalog, each tenant's modules and permissions, from the
         // permissions the modules declare, the same registrations the API makes.
