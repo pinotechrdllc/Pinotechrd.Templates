@@ -38,6 +38,18 @@ public static class RequestLogging
     /// <summary>The property of the completion event that holds the route template, such as <c>/api/v1/version</c>.</summary>
     public const string RouteProperty = "RequestRoute";
 
+    /// <summary>
+    /// The property of the completion event that holds the opaque identifier of the authenticated user, a GUID; absent
+    /// for an anonymous request.
+    /// </summary>
+    public const string UserIdProperty = "UserId";
+
+    /// <summary>
+    /// The property of the completion event that holds the opaque identifier of the request's tenant, a GUID; absent
+    /// when the request has no tenant.
+    /// </summary>
+    public const string TenantIdProperty = "TenantId";
+
     /// <summary>The message template of the completion event.</summary>
     public const string MessageTemplate = "HTTP {RequestMethod:l} {RequestPath:l} responded {StatusCode} in {Elapsed:0.0000} ms";
 

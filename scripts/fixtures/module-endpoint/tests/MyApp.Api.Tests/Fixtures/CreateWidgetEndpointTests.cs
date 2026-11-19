@@ -149,7 +149,7 @@ public class CreateWidgetEndpointTests(ApiHostFactory factory) : IClassFixture<A
     }
 
     // Breaks when the operation loses a problem response the contract rules require of an operation with a body, or
-    // declares one that it cannot return (it requires no authorization and does not opt out of rate limiting).
+    // declares one that it cannot return (it is anonymous, so no 401 and no 403, and it does not opt out of rate limiting).
     [Fact]
     public async Task TheOperationDeclaresTheProblemResponsesTheContractRulesRequire()
     {
@@ -168,6 +168,30 @@ public class CreateWidgetEndpointTests(ApiHostFactory factory) : IClassFixture<A
         {
             Assert.Null(operation["responses"]![status]);
         }
+    }
+
+    // Breaks when the operation is documented as needing a login: the fixture endpoint is AllowAnonymous(), so it declares no
+    // security requirement (an anonymous operation references no scheme).
+    [Fact]
+    public async Task TheOperationDeclaresNoSecurityRequirementBecauseTheEndpointIsAnonymous()
+    {
+        var document = await FetchDocumentAsync();
+
+        var operation = OpenApiContract.Paths(document)[WidgetsPath]!["post"]!.AsObject();
+
+        Assert.True(operation["security"] is null or System.Text.Json.Nodes.JsonArray { Count: 0 }, $"POST {WidgetsPath} declares a security requirement but is anonymous.");
+    }
+
+    // Breaks when the anonymous endpoint needs credentials: it answers an anonymous caller with 200, not 401.
+    [Fact]
+    public async Task TheEndpointAnswersAnAnonymousCallerBecauseItIsAnonymous()
+    {
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(WidgetsPath, new { name = "gear", quantity = 3 }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(response.Headers.WwwAuthenticate);
     }
 
     // Breaks when the common rules of the contract no longer hold for the document that includes the module endpoint.

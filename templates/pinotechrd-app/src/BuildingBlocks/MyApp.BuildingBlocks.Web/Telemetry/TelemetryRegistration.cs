@@ -72,6 +72,18 @@ public static class TelemetryRegistration
     public const string VersionProperty = "Version";
 
     /// <summary>
+    /// The server span attribute with the opaque identifier of the authenticated user (OpenTelemetry <c>user.id</c>),
+    /// set after authentication; absent for an anonymous request.
+    /// </summary>
+    public const string UserIdTag = "user.id";
+
+    /// <summary>
+    /// The server span attribute with the opaque identifier of the request's tenant, set after authentication; absent
+    /// when the request has no tenant.
+    /// </summary>
+    public const string TenantIdTag = "tenant.id";
+
+    /// <summary>
     /// The framework categories that write a header value, the query string or the client address. They stay at
     /// <c>Warning</c> whatever <c>Default</c> or a parent such as <c>Microsoft.AspNetCore</c> is set to, unless the
     /// category itself is named in <c>Logging:LogLevel</c>:
@@ -98,7 +110,7 @@ public static class TelemetryRegistration
     /// <summary>
     /// Replaces the platform's log providers with the JSON event stream and adds the OpenTelemetry traces and metrics
     /// described on <see cref="TelemetryRegistration"/>. The completion event of each request is added to the pipeline
-    /// by <see cref="Security.HttpSecurityRegistration.UseApiPipeline"/>. Nothing here needs a setting or reaches the
+    /// by <see cref="ApiPipeline.UseApiPipeline"/>. Nothing here needs a setting or reaches the
     /// network unless OTLP export is configured. An invalid level in <c>Logging:LogLevel</c> stops the host.
     /// </summary>
     /// <typeparam name="TBuilder">The type of the host builder.</typeparam>

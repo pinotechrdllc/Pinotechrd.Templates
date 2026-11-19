@@ -23,6 +23,7 @@ public sealed class ModuleContext
         Services = services;
         Configuration = configuration;
         Environment = environment;
+        IsGeneratingApiDocument = OpenApi.ApiDocumentGeneration.IsRunning;
     }
 
     /// <summary>Gets the service collection of the host, where the module registers its services.</summary>
@@ -36,4 +37,11 @@ public sealed class ModuleContext
 
     /// <summary>Gets the environment of the host.</summary>
     public IHostEnvironment Environment { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the host runs for the build-time contract generation, with no configuration and
+    /// no secrets (see <see cref="OpenApi.ApiDocumentGeneration"/>). A module skips there the start-time validation of a
+    /// setting that needs a secret, and still registers every service.
+    /// </summary>
+    public bool IsGeneratingApiDocument { get; }
 }

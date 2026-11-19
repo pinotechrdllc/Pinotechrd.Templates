@@ -24,7 +24,9 @@ public interface IModule
     /// <summary>
     /// Registers the services of the module in <see cref="ModuleContext.Services"/>. It runs once, when the host adds the
     /// module. It must not read a required configuration value or connect to anything while registering: the build-time
-    /// contract generation starts the host with no configuration and no database.
+    /// contract generation starts the host with no configuration and no database
+    /// (<see cref="ModuleContext.IsGeneratingApiDocument"/>). It also registers the permissions the module's endpoints
+    /// require, with <c>AddPermissions</c>.
     /// </summary>
     /// <param name="context">The host's services, configuration and environment.</param>
     void AddServices(ModuleContext context);

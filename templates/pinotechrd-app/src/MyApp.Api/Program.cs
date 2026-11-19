@@ -1,5 +1,6 @@
 using MyApp.Api;
 using MyApp.BuildingBlocks.Web;
+using MyApp.BuildingBlocks.Web.Authorization;
 using MyApp.BuildingBlocks.Web.OpenApi;
 using MyApp.BuildingBlocks.Web.Problems;
 using MyApp.BuildingBlocks.Web.Security;
@@ -14,6 +15,11 @@ try
     builder.AddTelemetry();
     builder.Services.AddProblems();
     builder.Services.AddHttpSecurity();
+    // Deny by default: every endpoint declares its access (RequirePermission, AuthenticatedOnly or AllowAnonymous) or the
+    // host does not start. No real authentication scheme yet: until one is registered nobody can log in.
+    builder.Services.AddApiAuthorization();
+    // The tenant of each authenticated request comes from its token, and only from it.
+    builder.Services.AddRequestTenancy();
     // Built-in validation is generated at compile time for the request types of the endpoints mapped in the project that
     // calls AddValidation(), wherever those types are declared (a contracts project included). A project of its own that maps
     // endpoints (such as a module's endpoints) must call AddValidation() in its own registration; the calls add up.
@@ -28,8 +34,8 @@ try
     var app = builder.Build();
     stopping = app.Lifetime.ApplicationStopping;
 
-    // Forwarded headers, request logging, security headers, CORS, error handling, routing, rate limiting, then
-    // authentication and authorization when their services are registered, in that order.
+    // Forwarded headers, request logging, security headers, CORS, error handling, routing, rate limiting,
+    // authentication, the authenticated-request steps and authorization, in that order.
     app.UseApiPipeline();
     app.MapHealth();
     app.MapApiEndpoints();

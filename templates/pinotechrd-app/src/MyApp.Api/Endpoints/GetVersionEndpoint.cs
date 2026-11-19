@@ -7,7 +7,7 @@ namespace MyApp.Api.Endpoints;
 /// <param name="Version">The informational version of the running application.</param>
 public sealed record VersionResponse(string Version);
 
-/// <summary>Returns the informational version of the running application.</summary>
+/// <summary>Returns the informational version of the running application. Open to anonymous callers.</summary>
 public sealed class GetVersionEndpoint : IEndpoint
 {
     private static readonly VersionResponse Response = new(ReadVersion());
@@ -17,7 +17,8 @@ public sealed class GetVersionEndpoint : IEndpoint
         routes.MapGet("/version", () => TypedResults.Ok(Response))
             .WithName("GetVersion")
             .WithTags("System")
-            .WithSummary("Gets the informational version of the running application.");
+            .WithSummary("Gets the informational version of the running application.")
+            .AllowAnonymous();
 
     private static string ReadVersion()
     {

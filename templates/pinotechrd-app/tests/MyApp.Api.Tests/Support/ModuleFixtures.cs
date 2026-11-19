@@ -43,7 +43,7 @@ public sealed class FixtureStrayHandler
 /// <summary>A GET endpoint at a relative route that answers with a fixed text, to tell which endpoint served a request.</summary>
 public abstract class FixtureGetEndpoint(string route, string answer) : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet(route, () => Results.Ok(answer));
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet(route, () => Results.Ok(answer)).AllowAnonymous();
 }
 
 /// <summary>The endpoints of the module fixtures. Declared in an order that is not the ordinal order of their names.</summary>
@@ -54,7 +54,7 @@ public static class ModuleFixtureEndpoints
     public sealed class SalesOwnTag : IEndpoint
     {
         public void MapEndpoint(IEndpointRouteBuilder routes) =>
-            routes.MapGet("/own-tag", () => Results.Ok("own-tag")).WithTags("Custom");
+            routes.MapGet("/own-tag", () => Results.Ok("own-tag")).WithTags("Custom").AllowAnonymous();
     }
 
     public sealed class ApiKeysKeys() : FixtureGetEndpoint("/keys", "api-keys");
@@ -98,7 +98,7 @@ public static class ModuleFixtureEndpoints
     public sealed class ValidatedItems : IEndpoint
     {
         public void MapEndpoint(IEndpointRouteBuilder routes) =>
-            routes.MapPost("/items", (FixtureItem item) => Results.Ok(item));
+            routes.MapPost("/items", (FixtureItem item) => Results.Ok(item)).AllowAnonymous();
     }
 }
 

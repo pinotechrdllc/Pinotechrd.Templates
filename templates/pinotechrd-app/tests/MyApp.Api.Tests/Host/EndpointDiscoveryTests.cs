@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using MyApp.Api.Tests.Support;
 using MyApp.BuildingBlocks.Web;
 
 namespace MyApp.Api.Tests.Host;
@@ -79,16 +80,8 @@ public class EndpointDiscoveryTests
         Assert.Equal(HttpStatusCode.NotFound, await StatusOf(client, "/api/v1/fixture"));
     }
 
-    private static async Task<WebApplication> StartAsync(Action<IServiceCollection> configure)
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        configure(builder.Services);
-        var app = builder.Build();
-        app.MapApiEndpoints();
-        await app.StartAsync(TestContext.Current.CancellationToken);
-        return app;
-    }
+    private static Task<WebApplication> StartAsync(Action<IServiceCollection> configure) =>
+        ModuleHost.StartAsync(builder => configure(builder.Services));
 
     private static IEnumerable<string?> RoutesOf(WebApplication app) =>
         ((IEndpointRouteBuilder)app).DataSources
@@ -105,20 +98,20 @@ public class EndpointDiscoveryTests
 
 public sealed class FixtureEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/fixture", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/fixture", () => Results.Ok()).AllowAnonymous();
 }
 
 internal sealed class InternalFixtureEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/internal-fixture", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/internal-fixture", () => Results.Ok()).AllowAnonymous();
 }
 
 public sealed class GenericFixtureEndpoint<T> : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/generic-fixture", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/generic-fixture", () => Results.Ok()).AllowAnonymous();
 }
 
 public abstract class AbstractFixtureEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/abstract-fixture", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/abstract-fixture", () => Results.Ok()).AllowAnonymous();
 }

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using MyApp.BuildingBlocks.Web;
+using MyApp.BuildingBlocks.Web.Authorization;
 
 namespace MyApp.Api.Tests.Support;
 
@@ -15,30 +16,41 @@ internal static partial class OpenApiDocumentRules
 
     /// <summary>
     /// What the endpoints of a host imply for their documented operations, keyed by <c>METHOD path</c> as the document
-    /// writes it: the operations that require authorization (and so declare 401 and 403) and those that opted out of
+    /// writes it. There are three kinds of operation: anonymous (<c>AllowAnonymous()</c>: no security requirement, no 401,
+    /// no 403), authenticated (<c>AuthenticatedOnly()</c>: the <c>Bearer</c> requirement and 401, no 403) and permission
+    /// (<c>RequirePermission</c>: the requirement, 401 and 403). <see cref="Authenticated"/> holds both of the last two
+    /// kinds, <see cref="Permission"/> the last one only. <see cref="Unlimited"/> holds the operations that opted out of
     /// rate limiting (and so do not declare 429).
     /// </summary>
-    public sealed record EndpointExpectations(IReadOnlySet<string> Secured, IReadOnlySet<string> Unlimited);
+    public sealed record EndpointExpectations(
+        IReadOnlySet<string> Authenticated, IReadOnlySet<string> Permission, IReadOnlySet<string> Unlimited);
 
-    /// <summary>Reads the authorization and rate limiting metadata of the endpoints registered in the host.</summary>
+    /// <summary>Reads the access declaration and the rate limiting metadata of the endpoints registered in the host.</summary>
     public static EndpointExpectations ExpectationsOf(IServiceProvider services)
     {
-        var secured = new HashSet<string>(StringComparer.Ordinal);
+        var authenticated = new HashSet<string>(StringComparer.Ordinal);
+        var permission = new HashSet<string>(StringComparer.Ordinal);
         var unlimited = new HashSet<string>(StringComparer.Ordinal);
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
         foreach (var endpoint in endpoints)
         {
             var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
             var path = RouteParameter().Replace(endpoint.RoutePattern.RawText ?? string.Empty, "{$1}");
-            var requiresAuthorization = endpoint.Metadata.Any(m => m is IAuthorizeData or AuthorizationPolicy)
-                && !endpoint.Metadata.OfType<IAllowAnonymous>().Any();
+            var requiresPermission = endpoint.Metadata.OfType<PermissionMetadata>().Any();
+            var requiresAuthentication = requiresPermission
+                || (endpoint.Metadata.OfType<AuthenticatedOnlyMetadata>().Any() && !endpoint.Metadata.OfType<IAllowAnonymous>().Any());
             var disabled = endpoint.Metadata.OfType<DisableRateLimitingAttribute>().Any();
             foreach (var method in methods)
             {
                 var key = $"{method.ToUpperInvariant()} {path}";
-                if (requiresAuthorization)
+                if (requiresAuthentication)
                 {
-                    secured.Add(key);
+                    authenticated.Add(key);
+                }
+
+                if (requiresPermission)
+                {
+                    permission.Add(key);
                 }
 
                 if (disabled)
@@ -48,7 +60,7 @@ internal static partial class OpenApiDocumentRules
             }
         }
 
-        return new EndpointExpectations(secured, unlimited);
+        return new EndpointExpectations(authenticated, permission, unlimited);
     }
 
     [GeneratedRegex(@"\{([^}:?*]+)[^}]*\}")]
@@ -56,9 +68,10 @@ internal static partial class OpenApiDocumentRules
 
     /// <summary>
     /// Every operation declares 500 as problem+json, and every operation under the API prefix also 429 (rate limited)
-    /// unless the endpoint opted out of rate limiting; 401 and 403 if and only if the endpoint requires authorization
-    /// (both read from <paramref name="expectations"/>); 400 if and only if it has input (parameters or a body), and
-    /// 408, 413 and 415 if and only if it has a request body.
+    /// unless the endpoint opted out of rate limiting; 401 and the <c>Bearer</c> security requirement if and only if the
+    /// endpoint requires authentication, and 403 if and only if it requires a permission (both read from
+    /// <paramref name="expectations"/>); 400 if and only if it has input (parameters or a body), and 408, 413 and 415 if
+    /// and only if it has a request body. The document declares the <c>Bearer</c> scheme and no document-wide requirement.
     /// </summary>
     public static void AssertCommonProblemResponses(JsonObject document, EndpointExpectations expectations)
     {
@@ -66,6 +79,7 @@ internal static partial class OpenApiDocumentRules
         Assert.NotEmpty(operations);
 
         var failures = new List<string>();
+        AssertBearerScheme(document, failures);
         foreach (var (path, method, operation) in operations)
         {
             var name = $"{method.ToUpperInvariant()} {path}";
@@ -74,8 +88,9 @@ internal static partial class OpenApiDocumentRules
 
             Expect("500", true);
             var key = $"{method.ToUpperInvariant()} {path}";
-            Expect("401", expectations.Secured.Contains(key));
-            Expect("403", expectations.Secured.Contains(key));
+            Expect("401", expectations.Authenticated.Contains(key));
+            Expect("403", expectations.Permission.Contains(key));
+            ExpectSecurity(expectations.Authenticated.Contains(key));
             if (expectations.Unlimited.Contains(key))
             {
                 Expect("429", false);
@@ -89,6 +104,23 @@ internal static partial class OpenApiDocumentRules
             foreach (var status in BodyStatuses)
             {
                 Expect(status, hasBody);
+            }
+
+            void ExpectSecurity(bool required)
+            {
+                var requirements = operation["security"] as JsonArray ?? [];
+                var bearer = requirements.Count == 1
+                    && requirements[0] is JsonObject requirement
+                    && requirement.Count == 1
+                    && requirement["Bearer"] is JsonArray { Count: 0 };
+                if (required && !bearer)
+                {
+                    failures.Add($"{name} does not declare exactly the Bearer security requirement");
+                }
+                else if (!required && requirements.Count > 0)
+                {
+                    failures.Add($"{name} declares a security requirement but is open to anonymous callers");
+                }
             }
 
             void Expect(string status, bool declared)
@@ -106,6 +138,27 @@ internal static partial class OpenApiDocumentRules
         }
 
         Assert.True(failures.Count == 0, string.Join("; ", failures));
+    }
+
+    private static void AssertBearerScheme(JsonObject document, List<string> failures)
+    {
+        var scheme = document["components"]?["securitySchemes"]?["Bearer"] as JsonObject;
+        if (scheme is null
+            || scheme["type"]?.GetValue<string>() != "http"
+            || !string.Equals(scheme["scheme"]?.GetValue<string>(), "bearer", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("The document does not declare the Bearer scheme as an http bearer scheme");
+        }
+
+        if (document["components"]?["securitySchemes"] is JsonObject schemes && schemes.Count != 1)
+        {
+            failures.Add("The document declares security schemes other than Bearer");
+        }
+
+        if (document["security"] is JsonArray { Count: > 0 })
+        {
+            failures.Add("The document declares a document-wide security requirement, which would cover anonymous operations");
+        }
     }
 
     /// <summary>

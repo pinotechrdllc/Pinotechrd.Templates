@@ -46,7 +46,7 @@ internal static class SecretScenarios
     }
 
     /// <summary>Every remote address that the scenarios set on their requests (the client address).</summary>
-    public static IEnumerable<string> RemoteAddresses => Enumerable.Range(1, 12).Select(i => $"10.20.0.{i}").Append(Proxy);
+    public static IEnumerable<string> RemoteAddresses => Enumerable.Range(1, 14).Select(i => $"10.20.0.{i}").Append(Proxy);
 
     public static Scenario[] All() =>
     [
@@ -56,7 +56,9 @@ internal static class SecretScenarios
         new("400 malformed JSON", [400], s => s.Request(HttpMethod.Post, Base + "/items", "10.20.0.4", body: $$"""{"name": "{{s.BodyValue}}", """)),
         new("400 validation failure", [400, 422], s => s.Request(HttpMethod.Post, Base + "/items", "10.20.0.5", body: $$"""{"name":"{{s.BodyValue}}","quantity":9999}""")),
         new("401 anonymous", [401], s => s.Request(HttpMethod.Get, ProblemFixtureEndpoint.Secured, "10.20.0.6")),
-        new("403 without the role", [403], s => s.Request(HttpMethod.Get, ProblemFixtureEndpoint.AdminOnly, "10.20.0.7", user: s.CustomHeader, roles: "reader")),
+        new("403 without the permission", [403], s => s.Request(HttpMethod.Get, ProblemFixtureEndpoint.AdminOnly, "10.20.0.7", user: s.CustomHeader)),
+        new("200 authenticated with personal claims", [200], s => s.Request(HttpMethod.Get, ProblemFixtureEndpoint.Secured, "10.20.0.13", user: s.NameClaim, claims: s.PersonalClaims())),
+        new("403 authenticated with personal claims", [403], s => s.Request(HttpMethod.Get, ProblemFixtureEndpoint.AdminOnly, "10.20.0.14", user: s.NameClaim, claims: s.PersonalClaims())),
         new("429 over the limit", [200, 200, 429], s => s.Request(HttpMethod.Get, SecurityRequests.Version, "10.20.0.8"), Repeat: 3),
         new("500 unhandled exception", [500], s => s.Request(HttpMethod.Get, SecurityRequests.Throwing, "10.20.0.9")),
         new("preflight from an unlisted origin", [200, 204, 400, 403], s => Preflight(s, Unlisted, "10.20.0.10")),
