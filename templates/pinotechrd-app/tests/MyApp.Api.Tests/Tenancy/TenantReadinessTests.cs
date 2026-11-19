@@ -76,6 +76,13 @@ public class TenantReadinessTests(PostgresFixture postgres)
         await using var rig = TenantRig.StartOn(connection, factory.Services.GetRequiredService<NpgsqlDataSource>(), ownsDataSource: false);
         var tenant = Guid.NewGuid();
         await rig.ProvisionAsync(tenant);
+        // The migrator's own statements (it sets session settings) are traced too: only what follows this marker is the tenant's.
+        await using (var start = rig.DataSource.CreateCommand("SELECT 4 AS before_tenant_work"))
+        {
+            await start.ExecuteScalarAsync(Token);
+        }
+
+        Assert.True(await TelemetryCapture.UntilAsync(() => Texts(capture, database).Any(t => t.Contains("before_tenant_work", StringComparison.Ordinal))));
 
         await using (var scope = rig.ScopeFor(tenant))
         {
@@ -91,7 +98,8 @@ public class TenantReadinessTests(PostgresFixture postgres)
         }
 
         Assert.True(await TelemetryCapture.UntilAsync(() => Texts(capture, database).Any(t => t.Contains("after_tenant_work", StringComparison.Ordinal))));
-        var texts = Texts(capture, database);
+        var all = Texts(capture, database);
+        var texts = all.Skip(all.FindIndex(t => t.Contains("before_tenant_work", StringComparison.Ordinal)) + 1).ToList();
         Assert.Contains(texts, t => t.Contains("SELECT", StringComparison.Ordinal) && t.Contains("access_items", StringComparison.Ordinal));
         Assert.Contains(texts, t => t.Contains("INSERT INTO access_items", StringComparison.Ordinal));
         Assert.DoesNotContain(texts, t => t.Contains("set_config", StringComparison.OrdinalIgnoreCase));

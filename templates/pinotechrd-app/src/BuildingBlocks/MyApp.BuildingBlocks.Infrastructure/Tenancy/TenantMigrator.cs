@@ -13,10 +13,15 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// <list type="number">
 /// <item>Waits for one of the migrator's slots (see <see cref="Capacity"/>), so concurrent runs never need more
 /// connections than the pool holds.</item>
-/// <item>Once per migrator, installs the PostgreSQL extensions the tenant models declare into the shared
-/// <see cref="TenantSchemaName.ExtensionsSchema"/> schema, under a global advisory lock.</item>
-/// <item>Takes the tenant's advisory lock on a connection of its own, creates the schema if it is missing, then, in a new
-/// scope set to that tenant, asks each module's context for its pending migrations and migrates it when there are any.
+/// <item>Once per migrator, under a global advisory lock: checks the server (PostgreSQL 16 or later) and the application
+/// login (<see cref="TenantMigratorOptions.ApplicationRole"/>), installs the PostgreSQL extensions the tenant models
+/// declare into the shared <see cref="TenantSchemaName.ExtensionsSchema"/> schema, reads the database's oid, which
+/// scopes every role name to this database, and creates the database's group role (<see cref="TenantRoleName.SharedFor"/>)
+/// with read rights on that schema and on the shared tables the tenant contexts map.</item>
+/// <item>Takes the tenant's advisory lock on a connection of its own, creates the schema if it is missing, creates the
+/// tenant's <c>NOLOGIN</c> role (<see cref="TenantRoleName.For"/>) and grants it data rights in that schema and the
+/// application login membership in it, then, in a new scope set to that tenant in migration mode (its connections keep
+/// the migrator's login), asks each module's context for its pending migrations and migrates it when there are any.
 /// Before each module it checks that the lock connection still holds the lock.</item>
 /// </list>
 /// <para>
@@ -54,6 +59,49 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
 
     private const string SchemaExistsSql = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1)";
 
+    private const string RoleExistsSql = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1)";
+
+    // Null when the role does not exist; true when it has an attribute a tenant or shared role must never have.
+    private const string RolePrivilegedSql =
+        "SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication "
+        + "FROM pg_catalog.pg_roles WHERE rolname = $1";
+
+    // The first membership row of the role $1 (as role or as member) that the migrator does not establish itself, as
+    // text, or null. Allowed rows, and nothing else:
+    // - the creator's row: member current_user, WITH ADMIN, grantor the bootstrap superuser (oid 10), which PostgreSQL 16
+    //   records when a login that is not a superuser creates a role;
+    // - rows without ADMIN, granted by current_user (or by the bootstrap superuser when current_user is a superuser,
+    //   which PostgreSQL records then):
+    //   - tenant role ($2 is the shared role): the role a member of $2; the application login $3 (current_user when
+    //     empty) a member of the role WITH INHERIT FALSE, SET TRUE;
+    //   - shared role ($2 empty): a tenant role of this database (prefix $4) a member of the role.
+    private const string RoleUnexpectedMembershipSql =
+        "WITH r AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $1), "
+        + "cu AS (SELECT oid, rolsuper FROM pg_catalog.pg_roles WHERE rolname = CURRENT_USER) "
+        + "SELECT pg_catalog.format('%I is a member of %I%s, granted by %I', m.rolname, g.rolname, "
+        + "CASE WHEN a.admin_option THEN ' WITH ADMIN' ELSE '' END, gr.rolname) "
+        + "FROM pg_catalog.pg_auth_members a JOIN r ON a.roleid = r.oid OR a.member = r.oid CROSS JOIN cu "
+        + "JOIN pg_catalog.pg_roles m ON m.oid = a.member JOIN pg_catalog.pg_roles g ON g.oid = a.roleid "
+        + "JOIN pg_catalog.pg_roles gr ON gr.oid = a.grantor "
+        + "WHERE NOT ("
+        + "(a.roleid = r.oid AND a.admin_option AND a.member = cu.oid AND a.grantor = 10::oid) "
+        + "OR (NOT a.admin_option AND (a.grantor = cu.oid OR (a.grantor = 10::oid AND cu.rolsuper)) AND ("
+        + "(a.member = r.oid AND $2 <> '' AND g.rolname = $2) "
+        + "OR (a.roleid = r.oid AND $2 <> '' AND m.rolname = COALESCE(NULLIF($3, ''), CURRENT_USER) "
+        + "AND NOT a.inherit_option AND a.set_option) "
+        + "OR (a.roleid = r.oid AND $2 = '' AND pg_catalog.starts_with(m.rolname, $4) AND m.rolname ~ '^t[0-9]+_[0-9a-f]{32}$')))) "
+        + "ORDER BY a.oid LIMIT 1";
+
+    private const string RelationExistsSql =
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+        + "WHERE n.nspname = $1 AND c.relname = $2)";
+
+    // Membership options (GRANT ... WITH INHERIT FALSE, SET TRUE) came with PostgreSQL 16.
+    private const int MinimumServerVersion = 16;
+
+    // How many times a tenant's grants are tried when a run on another database changes the same role rows.
+    private const int GrantAttempts = 3;
+
     private const string ExtensionSchemaSql =
         "SELECT n.nspname, e.extrelocatable FROM pg_catalog.pg_extension e "
         + "JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = $1";
@@ -62,8 +110,12 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     private readonly TenantDataSource _dataSource;
     private readonly List<IModuleMigrations> _modules;
     private readonly SemaphoreSlim _slots;
+    private readonly string? _applicationRoleName;
     private readonly string? _applicationRole;
     private volatile bool _extensionsReady;
+
+    // Read under the global lock before _extensionsReady is set, which publishes it.
+    private uint _databaseOid;
 
     public TenantMigrator(
         IServiceScopeFactory scopes, TenantDataSource dataSource, IEnumerable<IModuleMigrations> modules, IOptions<TenantMigratorOptions> options)
@@ -73,7 +125,8 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         ArgumentNullException.ThrowIfNull(modules);
         ArgumentNullException.ThrowIfNull(options);
 
-        _applicationRole = options.Value.ApplicationRole is { } role ? QuoteRole(role) : null;
+        _applicationRoleName = options.Value.ApplicationRole;
+        _applicationRole = _applicationRoleName is { } role ? QuoteRole(role) : null;
         _scopes = scopes;
         _dataSource = dataSource;
         _modules = Order(modules);
@@ -134,7 +187,12 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
             await using var lockConnection = await LockAsync(lockKey, cancellationToken).ConfigureAwait(false);
             try
             {
+                // The role first: a role that cannot be used stops the run before anything is created.
+                var roleName = TenantRoleName.For(_databaseOid, tenantId);
+                await EnsureRoleAsync(lockConnection, roleName, TenantRoleName.SharedFor(_databaseOid), string.Empty, cancellationToken)
+                    .ConfigureAwait(false);
                 schemaCreated = await EnsureSchemaAsync(lockConnection, schemaName, cancellationToken).ConfigureAwait(false);
+                await GrantTenantRoleAsync(lockConnection, tenantId, roleName, cancellationToken).ConfigureAwait(false);
                 await MigrateModulesAsync(tenantId, lockConnection, modules, cancellationToken).ConfigureAwait(false);
             }
             finally
@@ -166,7 +224,9 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         var scope = _scopes.CreateAsyncScope();
         await using (scope.ConfigureAwait(false))
         {
-            scope.ServiceProvider.GetRequiredService<ICurrentTenantInitializer>().Initialize(tenantId);
+            // The migrations run as the migrator's login, not the tenant's role: the login owns what they create, and
+            // the tenant's role gets its rights from GrantTenantRoleAsync.
+            scope.ServiceProvider.GetRequiredService<CurrentTenant>().InitializeForMigration(tenantId);
             foreach (var module in _modules)
             {
                 try
@@ -193,8 +253,10 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         }
     }
 
-    // The extensions every tenant model declares, installed once into the shared extensions schema. A migration's own
-    // CREATE EXTENSION IF NOT EXISTS is then a no-op, instead of installing the extension into the first tenant's schema.
+    // Once per migrator, under the global lock: checks the server and the application login, installs the extensions every
+    // tenant model declares into the shared extensions schema (a migration's own CREATE EXTENSION IF NOT EXISTS is then a
+    // no-op, instead of installing the extension into the first tenant's schema), and gives the shared group role its
+    // read rights. Those grants run here, once, and not per tenant: concurrent grants on one table collide on its ACL.
     private async Task EnsureExtensionsAsync(CancellationToken cancellationToken)
     {
         if (_extensionsReady)
@@ -203,33 +265,202 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         }
 
         var names = DeclaredExtensions();
-        if (names.Count > 0 || _applicationRole is not null)
+        var sharedTables = SharedTables();
+        await using var connection = await LockAsync(ExtensionsLockKey, cancellationToken).ConfigureAwait(false);
+        uint databaseOid;
+        try
         {
-            await using var connection = await LockAsync(ExtensionsLockKey, cancellationToken).ConfigureAwait(false);
-            try
-            {
-                // Checked first: CREATE SCHEMA IF NOT EXISTS needs CREATE on the database even when the schema exists.
-                _ = await EnsureSchemaAsync(connection, TenantSchemaName.ExtensionsSchema, cancellationToken).ConfigureAwait(false);
-                foreach (var name in names)
-                {
-                    await EnsureExtensionAsync(connection, name, cancellationToken).ConfigureAwait(false);
-                }
+            await EnsureServerAsync(connection, cancellationToken).ConfigureAwait(false);
+            databaseOid = await ScalarAsync(connection, TenantRoleName.DatabaseOidSql, cancellationToken).ConfigureAwait(false) as uint?
+                ?? throw new InvalidOperationException("The current database was not found in pg_database.");
 
-                if (_applicationRole is not null)
+            // Checked first: CREATE SCHEMA IF NOT EXISTS needs CREATE on the database even when the schema exists.
+            _ = await EnsureSchemaAsync(connection, TenantSchemaName.ExtensionsSchema, cancellationToken).ConfigureAwait(false);
+            foreach (var name in names)
+            {
+                await EnsureExtensionAsync(connection, name, cancellationToken).ConfigureAwait(false);
+            }
+
+            var sharedName = TenantRoleName.SharedFor(databaseOid);
+            var shared = TenantRoleName.Quoted(sharedName);
+            await EnsureRoleAsync(
+                    connection, sharedName, sharedRoleName: null, sharedName[..^TenantRoleName.SharedSuffix.Length] + "_", cancellationToken)
+                .ConfigureAwait(false);
+            await ExecuteAsync(
+                    connection, $"GRANT USAGE ON SCHEMA {TenantSchemaName.Quoted(TenantSchemaName.ExtensionsSchema)} TO {shared}", cancellationToken)
+                .ConfigureAwait(false);
+
+            // A shared table that does not exist yet is granted by a later run.
+            foreach (var (schema, table) in sharedTables)
+            {
+                if (await ScalarAsync(connection, RelationExistsSql, cancellationToken, schema, table).ConfigureAwait(false) is true)
                 {
-                    await using var grant = new NpgsqlCommand(
-                        $"GRANT USAGE ON SCHEMA {TenantSchemaName.Quoted(TenantSchemaName.ExtensionsSchema)} TO {_applicationRole}",
-                        connection);
-                    await grant.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    await ExecuteAsync(
+                            connection,
+                            $"GRANT USAGE ON SCHEMA {TenantSchemaName.Quoted(schema)} TO {shared}; "
+                            + $"GRANT SELECT ON {TenantSchemaName.Quoted(schema)}.{TenantSchemaName.Quoted(table)} TO {shared}",
+                            cancellationToken)
+                        .ConfigureAwait(false);
                 }
             }
-            finally
+        }
+        finally
+        {
+            await UnlockAsync(connection, ExtensionsLockKey).ConfigureAwait(false);
+        }
+
+        _databaseOid = databaseOid;
+        _extensionsReady = true;
+    }
+
+    // Membership options (WITH INHERIT FALSE, SET TRUE) need PostgreSQL 16; a named application login must exist.
+    private async Task EnsureServerAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        if (connection.PostgreSqlVersion.Major < MinimumServerVersion)
+        {
+            throw new InvalidOperationException(
+                $"Tenant database roles need PostgreSQL {MinimumServerVersion} or later (membership WITH INHERIT FALSE, SET TRUE); "
+                + $"this server is {connection.PostgreSqlVersion}.");
+        }
+
+        if (_applicationRoleName is not null
+            && await ScalarAsync(connection, RoleExistsSql, cancellationToken, _applicationRoleName).ConfigureAwait(false) is not true)
+        {
+            throw new InvalidOperationException(
+                $"The application login {_applicationRole} named by Migrator:ApplicationRole (TenantMigratorOptions.ApplicationRole) "
+                + "does not exist; create it, or leave the setting empty when the application connects with the migrator's own login.");
+        }
+    }
+
+    // Every run, under the tenant's lock, so a role that is missing, a membership, or a table added since the last run is
+    // put right. The tenant's role gets data rights in its own schema only, never CREATE: the migrator's login owns the
+    // schema and its tables, and default privileges give the role the tables later migrations create.
+    private async Task GrantTenantRoleAsync(NpgsqlConnection connection, Guid tenantId, string roleName, CancellationToken cancellationToken)
+    {
+        // DDL takes no parameters: every name passed its pattern and is quoted. One batch, so one implicit transaction:
+        // a run on another database that changes the same memberships at the same moment fails it whole, and it is retried.
+        var role = TenantRoleName.Quoted(roleName);
+        var schema = TenantSchemaName.Quoted(TenantSchemaName.For(tenantId));
+        var sql = $"GRANT {TenantRoleName.Quoted(TenantRoleName.SharedFor(_databaseOid))} TO {role}; "
+            + $"GRANT {role} TO {_applicationRole ?? "CURRENT_USER"} WITH INHERIT FALSE, SET TRUE; "
+            + $"GRANT USAGE ON SCHEMA {schema} TO {role}; "
+            + $"ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}; "
+            + $"ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA {schema} GRANT USAGE, SELECT ON SEQUENCES TO {role}; "
+            + $"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {role}; "
+            + $"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}";
+        for (var attempt = 1; ; attempt++)
+        {
+            try
             {
-                await UnlockAsync(connection, ExtensionsLockKey).ConfigureAwait(false);
+                await ExecuteAsync(connection, sql, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (PostgresException exception) when (attempt < GrantAttempts && IsConcurrentRoleChange(exception))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    // Role names are scoped to this database by its oid, but roles belong to the cluster and advisory locks to one
+    // database: a migrator connected to the same database through another route may create the same role at the same
+    // moment, which is fine. A role that already exists, created earlier by this migrator or by anyone else, is checked on
+    // every run and adopted only when it has no power of its own (a login, a superuser...) and no membership the migrator
+    // does not establish itself (see RoleUnexpectedMembershipSql): the application's login would gain that power by
+    // setting it, and a login holding it, or ADMIN on it, would reach the tenant's data. The same holds for a role a
+    // concurrent run created. The shared role passes a null sharedRoleName.
+    private async Task EnsureRoleAsync(
+        NpgsqlConnection connection, string roleName, string? sharedRoleName, string tenantRolePrefix, CancellationToken cancellationToken)
+    {
+        if (await ScalarAsync(connection, RolePrivilegedSql, cancellationToken, roleName).ConfigureAwait(false) is null)
+        {
+            try
+            {
+                await ExecuteAsync(connection, $"CREATE ROLE {TenantRoleName.Quoted(roleName)} NOLOGIN", cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (PostgresException exception) when (exception.SqlState != PostgresErrorCodes.InternalError && IsConcurrentRoleChange(exception))
+            {
+                // Created meanwhile by another run: checked below like any existing role.
             }
         }
 
-        _extensionsReady = true;
+        await EnsureRoleAdoptableAsync(connection, roleName, sharedRoleName, tenantRolePrefix, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task EnsureRoleAdoptableAsync(
+        NpgsqlConnection connection, string roleName, string? sharedRoleName, string tenantRolePrefix, CancellationToken cancellationToken)
+    {
+        var quoted = TenantRoleName.Quoted(roleName);
+        switch (await ScalarAsync(connection, RolePrivilegedSql, cancellationToken, roleName).ConfigureAwait(false))
+        {
+            case null:
+                throw new InvalidOperationException($"The role {quoted} was dropped while the migrator created it; run the migrator again.");
+            case true:
+                throw new InvalidOperationException(
+                    $"The role {quoted} already exists with LOGIN, SUPERUSER, BYPASSRLS, CREATEROLE, "
+                    + "CREATEDB or REPLICATION. A tenant role must have none of them, so it is not adopted: remove them (ALTER "
+                    + "ROLE ... NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION) or drop the role, then "
+                    + "run the migrator again.");
+        }
+
+        var unexpected = await ScalarAsync(
+                connection,
+                RoleUnexpectedMembershipSql,
+                cancellationToken,
+                roleName,
+                sharedRoleName ?? string.Empty,
+                _applicationRoleName ?? string.Empty,
+                tenantRolePrefix)
+            .ConfigureAwait(false);
+        if (unexpected is string membership)
+        {
+            throw new InvalidOperationException(
+                $"The role {quoted} has a membership the migrator does not establish ({membership}), so it is not adopted: a "
+                + "member, or a login holding ADMIN on it, could reach the tenant's data. Revoke that membership (REVOKE ... "
+                + "GRANTED BY ...) or drop the role, then run the migrator again (README, Existing roles).");
+        }
+    }
+
+    // What a concurrent run on another database of the cluster can cause on the shared role catalogs: the role created
+    // meanwhile (42710, or 23505 on pg_authid's unique index), a membership inserted meanwhile (23505 on
+    // pg_auth_members), or a row updated meanwhile (XX000, "tuple concurrently updated").
+    private static bool IsConcurrentRoleChange(PostgresException exception) =>
+        exception.SqlState is PostgresErrorCodes.DuplicateObject or PostgresErrorCodes.InternalError
+        || (exception.SqlState == PostgresErrorCodes.UniqueViolation
+            && exception.ConstraintName is { } constraint
+            && constraint.StartsWith("pg_auth", StringComparison.Ordinal));
+
+    private static async Task ExecuteAsync(NpgsqlConnection connection, string sql, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<object?> ScalarAsync(
+        NpgsqlConnection connection, string sql, CancellationToken cancellationToken, params string[] values)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        foreach (var value in values)
+        {
+            command.Parameters.Add(new NpgsqlParameter { Value = value });
+        }
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // The tables the tenant contexts read but never migrate (ExcludeFromMigrations), such as the catalog's: the shared
+    // group role may read them. Each name passes the identifier pattern before it reaches SQL.
+    private List<(string Schema, string Table)> SharedTables()
+    {
+        using var scope = _scopes.CreateScope();
+        return _modules
+            .SelectMany(m => ModelOf(m.GetContext(scope.ServiceProvider)).GetRelationalModel().Tables)
+            .Where(t => t.IsExcludedFromMigrations && t.Schema is not null)
+            .Select(t => (TenantSchemaName.Validate(t.Schema), TenantSchemaName.Validate(t.Name)))
+            .Distinct()
+            .Order()
+            .ToList();
     }
 
     private static async Task EnsureExtensionAsync(NpgsqlConnection connection, string name, CancellationToken cancellationToken)

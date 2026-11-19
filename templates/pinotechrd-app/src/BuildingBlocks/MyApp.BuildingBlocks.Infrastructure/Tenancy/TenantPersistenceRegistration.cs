@@ -1,7 +1,9 @@
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application.Tenancy;
 using Npgsql;
 
@@ -29,7 +31,8 @@ public static class TenantPersistenceRegistration
 
     /// <summary>
     /// Registers the scoped <see cref="ICurrentTenant"/> and <see cref="ICurrentTenantInitializer"/> (one object per
-    /// scope) and the check of the shared data source. Called by the other methods of this class; a host that only reads
+    /// scope), the check of the shared data source and <see cref="TenancyOptions"/>, read from
+    /// <see cref="TenancyOptions.AllowPrivilegedLoginKey"/> when the host has a configuration. Called by the other methods of this class; a host that only reads
     /// or sets the tenant calls it directly. Registering twice has no further effect.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -37,6 +40,21 @@ public static class TenantPersistenceRegistration
     public static IServiceCollection AddTenantPersistence(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+
+        if (!services.Any(d => d.ServiceType == typeof(CurrentTenant)))
+        {
+            // The configuration is optional: a host without one keeps the default (privileged logins refused).
+            services.AddOptions<TenancyOptions>().Configure<IServiceProvider>((options, provider) =>
+            {
+                var value = provider.GetService<IConfiguration>()?[TenancyOptions.AllowPrivilegedLoginKey];
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    options.AllowPrivilegedLogin = bool.TryParse(value, out var allowed)
+                        ? allowed
+                        : throw new InvalidOperationException($"{TenancyOptions.AllowPrivilegedLoginKey} must be true or false.");
+                }
+            });
+        }
 
         services.TryAddScoped<CurrentTenant>();
         services.TryAddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
@@ -105,7 +123,10 @@ public static class TenantPersistenceRegistration
             // source, the history table, the naming or the guard; the guard checks them again at the first open.
             configure?.Invoke(provider, options);
             options.UseTenantPersistence(
-                provider.GetRequiredService<TenantDataSource>().Value, provider.GetRequiredService<ICurrentTenant>(), moduleName);
+                provider.GetRequiredService<TenantDataSource>().Value,
+                provider.GetRequiredService<ICurrentTenant>(),
+                moduleName,
+                allowPrivilegedLogin: provider.GetRequiredService<IOptions<TenancyOptions>>().Value.AllowPrivilegedLogin);
         });
         services.AddSingleton<IModuleMigrations>(new ModuleMigrations<TContext>(moduleName));
         return services;

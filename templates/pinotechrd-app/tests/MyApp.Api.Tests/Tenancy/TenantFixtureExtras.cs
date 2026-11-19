@@ -131,13 +131,16 @@ public sealed class SlowWait : Migration
 internal sealed class SchemaHolder
 {
     public string Schema { get; set; } = string.Empty;
+
+    /// <summary>The tenant id the claimed tenant reports; a schema that is not the tenant's own is refused with the role check.</summary>
+    public Guid TenantId { get; set; } = Guid.NewGuid();
 }
 
 internal sealed class ClaimedTenant(SchemaHolder holder) : ICurrentTenant
 {
     public bool IsSet => true;
 
-    public Guid TenantId => Guid.NewGuid();
+    public Guid TenantId => holder.TenantId;
 
     public string SchemaName => holder.Schema;
 }

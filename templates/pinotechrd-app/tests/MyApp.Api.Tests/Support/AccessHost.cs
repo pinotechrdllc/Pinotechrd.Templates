@@ -20,9 +20,9 @@ internal static class AccessHost
 
     public static readonly string WhoAmIRoute = IdentityFixtureEndpoint.WhoAmIRoute;
 
-    /// <summary>A host on <paramref name="connectionString"/> with the fixture endpoint and the identity fixture routes.</summary>
+    /// <summary>A host on <paramref name="connectionString"/> (the fixture's superuser login, so the tenancy option that accepts a privileged login is on) with the fixture endpoint and the identity fixture routes.</summary>
     public static ApiHostFactory For(string connectionString) =>
-        WithFixtures(new ApiHostFactory().WithDatabase(connectionString));
+        WithFixtures(new ApiHostFactory().WithDatabase(connectionString).WithSetting("Tenancy:AllowPrivilegedLogin", "true"));
 
     /// <summary>A host that never reaches a database (for the requests the authentication refuses first).</summary>
     public static ApiHostFactory WithoutDatabase() => WithFixtures(new ApiHostFactory());

@@ -101,9 +101,9 @@ public class ApplicationRoleTests(PostgresFixture postgres)
         }
     }
 
-    // Breaks when a role name with a dash and capitals (App-Role) is not quoted, so USAGE on extensions is not granted to it.
+    // Breaks when a role name with a dash and capitals (App-Role) is not quoted, so it is not made a member of the tenant role.
     [Fact]
-    public async Task ARoleNamedWithADashAndCapitalsIsGrantedUsageOnTheExtensionsSchema()
+    public async Task ARoleNamedWithADashAndCapitalsBecomesAMemberOfTheTenantRole()
     {
         var role = "App-Role-" + Guid.NewGuid().ToString("N")[..8];
         await using var dropRole = new RoleDrop(postgres, role);
@@ -111,14 +111,17 @@ public class ApplicationRoleTests(PostgresFixture postgres)
         await using var dropDatabase = new DatabaseDrop(postgres, rig.Database);
         await rig.ExecuteAsync($"CREATE ROLE \"{role}\"");
 
-        var result = await rig.Services.GetRequiredService<ITenantMigrator>().MigrateAsync(Guid.NewGuid(), Token);
+        var tenant = Guid.NewGuid();
+
+        var result = await rig.Services.GetRequiredService<ITenantMigrator>().MigrateAsync(tenant, Token);
 
         Assert.True(result.Succeeded, result.Error?.ToString());
-        Assert.True(await rig.ScalarAsync<bool>($"SELECT has_schema_privilege('{role}', 'extensions', 'USAGE')"));
+        Assert.True(await rig.ScalarAsync<bool>($"SELECT pg_has_role('{role}', '{rig.RoleOf(tenant)}', 'SET')"));
+        Assert.False(await rig.ScalarAsync<bool>($"SELECT pg_has_role('{role}', '{rig.RoleOf(tenant)}', 'USAGE')"));
     }
 
     // Breaks when the role name is put into SQL unquoted or with its quotes unescaped: a hostile name must fail as a role that
-    // does not exist (42704), and the table it names must survive.
+    // does not exist, and the table it names must survive.
     [Fact]
     public async Task AHostileRoleNameFailsAsAnUnknownRoleAndDropsNothing()
     {
@@ -136,7 +139,7 @@ public class ApplicationRoleTests(PostgresFixture postgres)
             chain.Add(e);
         }
 
-        Assert.Contains(chain, e => e is PostgresException { SqlState: "42704" });
+        Assert.Contains(chain, e => e is InvalidOperationException && e.Message.Contains("does not exist", StringComparison.Ordinal));
         Assert.Equal(1L, await rig.ScalarAsync<long>("SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename = 'victim'"));
     }
 
@@ -233,8 +236,8 @@ public class VerdictCacheTests
     }
 }
 
-// The limits the README documents, pinned: each test describes behaviour that is NOT a guarantee. If one fails, a limit was
-// lifted: update the test and the README together.
+// The limits the README documents: what the statement check does not guarantee, and the residual risk that remains with
+// a role per tenant. If one fails, a limit changed: update the test and the README together.
 [Collection(PostgresContainer.Name)]
 public class PinnedLimitTests(PostgresFixture postgres)
 {
@@ -242,10 +245,11 @@ public class PinnedLimitTests(PostgresFixture postgres)
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
-    // PINNED LIMIT, not a guarantee: with one database role owning every schema, schema-qualified raw SQL reads another tenant.
-    // The README lists it as the residual risk, "The guard prevents accidents through EF, not deliberate SQL".
+    // Breaks when schema-qualified raw SQL of a tenant context reaches another tenant's rows (the connection runs as the
+    // tenant's own role, which has no right on the other schema): PostgreSQL refuses it with 42501, and the context still reads
+    // only its own rows.
     [Fact]
-    public async Task PinnedLimitSchemaQualifiedRawSqlOfATenantContextReadsAnotherTenantsRows()
+    public async Task SchemaQualifiedRawSqlOfATenantContextOnAnotherTenantsTableIsRefusedByPostgreSql()
     {
         await using var rig = await TenantRig.StartAsync(postgres, maxPoolSize: 2);
         var (a, b) = (Guid.NewGuid(), new Guid("b0b0b0b0-b0b0-b0b0-b0b0-b0b0b0b0b0b0"));
@@ -256,9 +260,10 @@ public class PinnedLimitTests(PostgresFixture postgres)
         await using var scope = rig.ScopeFor(a);
         var context = scope.ServiceProvider.GetRequiredService<AccessContext>();
 
-        var stolen = await context.Items.FromSqlRaw("SELECT * FROM \"tenant_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0\".access_items").Select(i => i.Name).ToListAsync(Token);
+        var refused = await Assert.ThrowsAsync<PostgresException>(() =>
+            context.Items.FromSqlRaw("SELECT * FROM \"tenant_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0\".access_items").Select(i => i.Name).ToListAsync(Token));
 
-        Assert.Equal(["secret-of-b"], stolen);
+        Assert.Equal("42501", refused.SqlState);
         Assert.Empty(await context.Items.Select(i => i.Name).ToListAsync(Token));
     }
 
@@ -274,7 +279,8 @@ public class PinnedLimitTests(PostgresFixture postgres)
         Assert.Contains("`DO` blocks", readme, StringComparison.Ordinal);
         Assert.Contains("get no statement check", readme, StringComparison.Ordinal);
         Assert.Contains("Residual risk", readme, StringComparison.Ordinal);
-        Assert.Contains("schema-qualified raw SQL reads another tenant", readme, StringComparison.Ordinal);
-        Assert.Contains("deliberate SQL", readme, StringComparison.Ordinal);
+        Assert.Contains("refuses schema-qualified SQL on another tenant's schema", readme, StringComparison.Ordinal);
+        Assert.Contains("not hostile SQL", readme, StringComparison.Ordinal);
+        Assert.Contains("RESET ROLE", readme, StringComparison.Ordinal);
     }
 }

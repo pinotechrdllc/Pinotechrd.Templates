@@ -19,7 +19,7 @@ public class ManualOptionsTests(PostgresFixture postgres)
     private static AccessContext Manual(NpgsqlDataSource dataSource, ICurrentTenant tenant)
     {
         var options = new DbContextOptionsBuilder<AccessContext>();
-        options.UseTenantPersistence(dataSource, tenant, "Access");
+        options.UseTenantPersistence(dataSource, tenant, "Access", allowPrivilegedLogin: true);
         return new AccessContext(options.Options);
     }
 
@@ -69,7 +69,7 @@ public class ManualOptionsTests(PostgresFixture postgres)
     {
         await using var rig = await TenantRig.StartAsync(postgres, maxPoolSize: 2);
         var tenant = Guid.NewGuid();
-        await rig.ExecuteAsync($"CREATE SCHEMA \"{TenantSchemaName.For(tenant)}\"");
+        await rig.CreateTenantSchemaAsync(tenant, allowDdl: true);
         await using var scope = rig.ScopeFor(tenant);
         await using var context = Manual(rig.DataSource, scope.ServiceProvider.GetRequiredService<ICurrentTenant>());
 

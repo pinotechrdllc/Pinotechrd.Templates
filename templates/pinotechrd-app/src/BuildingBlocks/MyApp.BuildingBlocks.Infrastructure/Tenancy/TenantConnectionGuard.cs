@@ -24,12 +24,20 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// undo it). Otherwise the open fails before anything reaches the server. At the first open it also checks that the
 /// context's options still carry what the building block guarantees (this guard, the module's unqualified history
 /// table, a connection string with no refused setting).</item>
-/// <item>Right after the open, one statement reads the session's default <c>search_path</c>, whether a schema is named
-/// like the database user, and whether the role may use the <c>extensions</c> schema; then sets <c>search_path</c> to the
-/// tenant's schema and <c>extensions</c> (the value is a parameter) and reads back the value and <c>current_schema()</c>.
-/// Unless the default is PostgreSQL's own (<c>"$user", public</c>, with no schema named like the user), the role may use
-/// <c>extensions</c> when it exists, and the result is exactly the tenant's, and on any failure or cancellation, the
-/// connection is closed before the exception goes on.</item>
+/// <item>Right after the open, one statement, evaluated left to right, reads the session's default <c>search_path</c>,
+/// whether a schema is named like the database user, the database's oid (which scopes the role name,
+/// <see cref="TenantRoleName.For"/>), whether the login is a superuser or has <c>BYPASSRLS</c>, whether it inherits the
+/// tenant's role and whether it may assume it; then assumes that role (<c>set_config('role', ...)</c>; <c>none</c> in a
+/// scope of the tenant migrator, see <see cref="CurrentTenant.InitializeForMigration"/>), sets <c>search_path</c> to the
+/// tenant's schema, <c>extensions</c> and <c>pg_temp</c> (the values are parameters), and reads back
+/// <c>current_user</c>, whether that role may use the <c>extensions</c> schema, the path and <c>current_schema()</c>.
+/// Unless the default is PostgreSQL's own (<c>"$user", public</c>, with no schema named like the user), the role exists
+/// and the login may set it, the login does not inherit it, the login is neither a superuser nor <c>BYPASSRLS</c> (unless
+/// <see cref="TenancyOptions.AllowPrivilegedLogin"/>; the migrator's own connections are exempt from both), the current
+/// user is that role (the login itself for the migrator), the role may use <c>extensions</c> when it exists, and the
+/// result is exactly the tenant's, and on any failure or cancellation, the connection is closed before the exception goes
+/// on. The pool's reset (<c>DISCARD ALL</c>, or <c>SET SESSION AUTHORIZATION DEFAULT</c> and <c>RESET ALL</c>) gives back
+/// the login's role with its path.</item>
 /// <item>Every command EF runs on the context's connection must find it bound to the context's current tenant, and must
 /// not change the session's path or role (<see cref="SessionStatements"/>). The binding is kept per connection object and
 /// cleared whenever the connection changes state, so it never survives the pool's reuse of the physical connection. A
@@ -41,7 +49,8 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// The statement that binds a connection is not traced (it is recognized by its command type). The statement check is a
 /// guard against mistakes in application SQL, not a security boundary (see <see cref="SessionStatements"/>).
 /// </summary>
-internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string historyTable) : IDbConnectionInterceptor, IDbCommandInterceptor
+internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string historyTable, bool allowPrivilegedLogin)
+    : IDbConnectionInterceptor, IDbCommandInterceptor
 {
     internal const string NoTenantMessage =
         "No current tenant: a tenant context cannot open a connection (there is no fallback to the public schema). "
@@ -64,13 +73,38 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
     /// <summary>PostgreSQL's own default <c>search_path</c>, which every new session must have.</summary>
     internal const string DefaultSearchPath = "\"$user\", public";
 
+    // The tenant parameter in a scope of the tenant migrator: the login keeps its own rights. No tenant id reads so.
+    private const string NoRole = "none";
+
+    // Whether the login may set the tenant's role t.role (PostgreSQL 16 or later); null when no such role exists.
+    private const string RoleSettableSql =
+        "(SELECT pg_catalog.pg_has_role(session_user, r.oid, 'SET') FROM pg_catalog.pg_roles r WHERE r.rolname = t.role)";
+
+    // Evaluated left to right: the checks of the login's session, then the role, then the path, then what the role sees.
+    // The role name is built on the server from the database's oid and the tenant id ($3, 32 hexadecimal digits), as
+    // TenantRoleName.For builds it from the oid read back here. The role is set only when it exists and the login may
+    // set it, so a missing role or membership is reported by its own message instead of a server error. A superuser
+    // holds every role with USAGE, so whether it inherits the role is not asked of it.
     private const string BindSql =
         "SELECT pg_catalog.current_setting('search_path'), "
         + "EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname IN (current_user, session_user)), "
-        + "(SELECT pg_catalog.has_schema_privilege(oid, 'USAGE') FROM pg_catalog.pg_namespace WHERE nspname = $2), "
+        + "pg_catalog.current_setting('standard_conforming_strings'), "
+        + "d.oid, "
+        + "(SELECT s.rolsuper FROM pg_catalog.pg_roles s WHERE s.rolname = session_user), "
+        + "(SELECT s.rolbypassrls FROM pg_catalog.pg_roles s WHERE s.rolname = session_user), "
+        + "(SELECT pg_catalog.pg_has_role(session_user, r.oid, 'USAGE') FROM pg_catalog.pg_roles r WHERE r.rolname = t.role), "
+        + RoleSettableSql + ", "
+        + "CASE WHEN t.role IS NULL THEN pg_catalog.set_config('role', 'none', false) "
+        + "WHEN " + RoleSettableSql + " THEN pg_catalog.set_config('role', t.role, false) END, "
         + "pg_catalog.set_config('search_path', $1, false), "
-        + "pg_catalog.current_schema(), "
-        + "pg_catalog.current_setting('standard_conforming_strings')";
+        + "current_user, "
+        + "session_user, "
+        + "(SELECT pg_catalog.has_schema_privilege(oid, 'USAGE') FROM pg_catalog.pg_namespace WHERE nspname = $2), "
+        + "pg_catalog.current_schema() "
+        + "FROM pg_catalog.pg_database d, "
+        + "LATERAL (SELECT CASE WHEN $3 = '" + NoRole + "' THEN NULL "
+        + "ELSE '" + TenantRoleName.Prefix + "' || d.oid::text || '_' || $3 END AS role) t "
+        + "WHERE d.datname = pg_catalog.current_database()";
 
     /// <summary>The key of <see cref="Exception.Data"/> that holds where a non-default search_path is set.</summary>
     internal const string DefaultPathSourcesKey = "PgDbRoleSetting";
@@ -150,10 +184,11 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
         var binding = Track(connection);
         binding.Opening = false;
         var schema = currentTenant.SchemaName;
+        var tenant = TenantOf(currentTenant);
         try
         {
             BindResult row;
-            using (var command = new BindingCommand(AsNpgsql(connection), TenantSchemaName.SearchPathFor(schema)))
+            using (var command = new BindingCommand(AsNpgsql(connection), TenantSchemaName.SearchPathFor(schema), TenantParameter(tenant)))
             using (var reader = command.ExecuteReader())
             {
                 row = reader.Read() ? BindResult.From(reader) : default;
@@ -167,7 +202,7 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
                 throw DefaultPathException(problem, found.IsDBNull(0) ? null : found.GetString(0), found.IsDBNull(1) ? null : found.GetString(1), eventData.Context);
             }
 
-            row.Verify(schema);
+            row.Verify(schema, tenant, allowPrivilegedLogin);
         }
         catch
         {
@@ -183,10 +218,11 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
         var binding = Track(connection);
         binding.Opening = false;
         var schema = currentTenant.SchemaName;
+        var tenant = TenantOf(currentTenant);
         try
         {
             BindResult row;
-            await using (var command = new BindingCommand(AsNpgsql(connection), TenantSchemaName.SearchPathFor(schema)))
+            await using (var command = new BindingCommand(AsNpgsql(connection), TenantSchemaName.SearchPathFor(schema), TenantParameter(tenant)))
             await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
                 row = await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? BindResult.From(reader) : default;
@@ -200,7 +236,7 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
                 throw DefaultPathException(problem, found.IsDBNull(0) ? null : found.GetString(0), found.IsDBNull(1) ? null : found.GetString(1), eventData.Context);
             }
 
-            row.Verify(schema);
+            row.Verify(schema, tenant, allowPrivilegedLogin);
         }
         catch
         {
@@ -278,6 +314,14 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
         return exception;
     }
 
+    // The tenant whose role a connection assumes, or null in a scope of the tenant migrator. Any other ICurrentTenant
+    // assumes the tenant's role: only the migrator, inside this assembly, can choose otherwise.
+    private static Guid? TenantOf(ICurrentTenant tenant) =>
+        tenant is CurrentTenant { AssumesTenantRole: false } ? null : tenant.TenantId;
+
+    // The tenant id as the bind statement takes it, 32 hexadecimal digits, or NoRole.
+    private static string TenantParameter(Guid? tenant) => tenant is { } id ? id.ToString("N") : NoRole;
+
     private static NpgsqlConnection AsNpgsql(DbConnection connection) =>
         connection as NpgsqlConnection ?? throw new InvalidOperationException("A tenant context must run on an Npgsql connection.");
 
@@ -319,6 +363,13 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
     {
         // Validates before anything is sent: a tenant, a valid schema name, no ambient transaction.
         _ = currentTenant.IsSet ? TenantSchemaName.Validate(currentTenant.SchemaName) : throw new InvalidOperationException(NoTenantMessage);
+        if (!string.Equals(currentTenant.SchemaName, TenantSchemaName.For(currentTenant.TenantId), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The current tenant's schema is not the one its id names, so the tenant's role would not match it; the "
+                + "connection is not opened.");
+        }
+
         EnsureNoAmbientTransaction();
         EnsureSafeSettings(AsNpgsql(connection));
         if (!_optionsVerified)
@@ -391,23 +442,44 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
     }
 
     // What the bind statement returned.
+    // Column 8 (the role set_config returned) is not read: current_user says what it did. A login whose attributes cannot
+    // be read counts as privileged.
     private readonly record struct BindResult(
-        string? DefaultPath, bool UserSchemaExists, bool? ExtensionsUsable, string? Path, string? Schema, string? ConformingStrings)
+        string? DefaultPath,
+        bool UserSchemaExists,
+        string? ConformingStrings,
+        uint? DatabaseOid,
+        bool Superuser,
+        bool BypassRls,
+        bool? RoleInherited,
+        bool? RoleSettable,
+        string? Path,
+        string? CurrentUser,
+        string? SessionUser,
+        bool? ExtensionsUsable,
+        string? Schema)
     {
         public static BindResult From(DbDataReader reader) => new(
             reader.IsDBNull(0) ? null : reader.GetString(0),
             !reader.IsDBNull(1) && reader.GetBoolean(1),
-            reader.IsDBNull(2) ? null : reader.GetBoolean(2),
-            reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.IsDBNull(4) ? null : reader.GetString(4),
-            reader.IsDBNull(5) ? null : reader.GetString(5));
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetFieldValue<uint>(3),
+            reader.IsDBNull(4) || reader.GetBoolean(4),
+            reader.IsDBNull(5) || reader.GetBoolean(5),
+            reader.IsDBNull(6) ? null : reader.GetBoolean(6),
+            reader.IsDBNull(7) ? null : reader.GetBoolean(7),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.IsDBNull(10) ? null : reader.GetString(10),
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(12) ? null : reader.GetBoolean(12),
+            reader.IsDBNull(13) ? null : reader.GetString(13));
 
         public string? DefaultProblem() =>
             !string.Equals(DefaultPath, DefaultSearchPath, StringComparison.Ordinal)
                 ? $"A new session's search_path is not PostgreSQL's default ({DefaultSearchPath})."
                 : null;
 
-        public void Verify(string schema)
+        public void Verify(string schema, Guid? tenant, bool allowPrivilegedLogin)
         {
             if (!string.Equals(ConformingStrings, "on", StringComparison.Ordinal))
             {
@@ -424,11 +496,57 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
                     + "another role. The connection is closed.");
             }
 
+            if (DatabaseOid is not { } databaseOid)
+            {
+                throw new InvalidOperationException("The bind statement did not find the current database; the connection is closed.");
+            }
+
+            var role = tenant is { } id ? TenantRoleName.For(databaseOid, id) : null;
+            if (role is not null && RoleSettable is null)
+            {
+                throw new InvalidOperationException(
+                    "The tenant's database role for this database does not exist (the tenant predates tenant roles, the "
+                    + "database was restored or copied and so has a new oid, or its migration did not finish); run the "
+                    + "migrator, which creates it. The connection is closed.");
+            }
+
+            if (role is not null && (Superuser || BypassRls) && !allowPrivilegedLogin)
+            {
+                throw new InvalidOperationException(
+                    "This login is a superuser or has BYPASSRLS, so it reads every tenant's data whatever role it assumes, and "
+                    + "tenant connections refuse it. Connect with a plain LOGIN (README, Database roles and deployment), or set "
+                    + $"{TenancyOptions.AllowPrivilegedLoginKey} to true for development or the single-login setup. The "
+                    + "connection is closed.");
+            }
+
+            if (role is not null && !Superuser && RoleInherited == true)
+            {
+                throw new InvalidOperationException(
+                    "This login inherits the rights of the tenant's database role (a membership WITH INHERIT TRUE, direct or "
+                    + "through another role), so it reads the tenant's data without assuming the role. Revoke that membership "
+                    + "and run the migrator, which grants it WITH INHERIT FALSE, SET TRUE. The connection is closed.");
+            }
+
+            if (role is not null && RoleSettable == false)
+            {
+                throw new InvalidOperationException(
+                    "This login is not a member of the tenant's database role with the right to set it; set "
+                    + "Migrator:ApplicationRole to this login and run the migrator. The connection is closed.");
+            }
+
+            if (CurrentUser is null || !string.Equals(CurrentUser, role ?? SessionUser, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The connection does not run as the tenant's database role (or, for the migrator, as its own login); the "
+                    + "connection is closed.");
+            }
+
             if (ExtensionsUsable == false)
             {
                 throw new InvalidOperationException(
-                    $"The database role cannot use the schema '{TenantSchemaName.ExtensionsSchema}' (no USAGE), so the extensions "
-                    + "there would be silently invisible. Grant it (see TenantMigratorOptions.ApplicationRole). The connection is closed.");
+                    $"The tenant's database role cannot use the schema '{TenantSchemaName.ExtensionsSchema}' (no USAGE), so the "
+                    + "extensions there would be silently invisible. Run the migrator, which grants it to "
+                    + $"'{TenantRoleName.SharedFor(databaseOid)}'. The connection is closed.");
             }
 
             if (!string.Equals(Path, TenantSchemaName.SearchPathFor(schema), StringComparison.Ordinal))
@@ -470,11 +588,12 @@ internal sealed class TenantConnectionGuard(ICurrentTenant currentTenant, string
     // The type the tracing filter recognizes; no other code creates one.
     private sealed class BindingCommand : NpgsqlCommand
     {
-        public BindingCommand(NpgsqlConnection connection, string searchPath)
+        public BindingCommand(NpgsqlConnection connection, string searchPath, string tenant)
             : base(BindSql, connection)
         {
             Parameters.Add(new NpgsqlParameter { Value = searchPath });
             Parameters.Add(new NpgsqlParameter { Value = TenantSchemaName.ExtensionsSchema });
+            Parameters.Add(new NpgsqlParameter { Value = tenant });
         }
     }
 }
