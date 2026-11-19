@@ -155,6 +155,23 @@ public static class TenantPersistenceRegistration
     }
 
     /// <summary>
+    /// Registers <typeparamref name="TSeeder"/> (a singleton that reads scoped services from the scope it is given) as an
+    /// <see cref="ITenantSeeder"/>: the tenant migrator runs it for every tenant after the modules' migrations, under the
+    /// tenant's lock. Seeders run in registration order. Registering the same type again has no further effect.
+    /// </summary>
+    /// <typeparam name="TSeeder">The seeder.</typeparam>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The same service collection, for chaining.</returns>
+    public static IServiceCollection AddTenantSeeder<TSeeder>(this IServiceCollection services)
+        where TSeeder : class, ITenantSeeder
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ITenantSeeder, TSeeder>());
+        return services;
+    }
+
+    /// <summary>
     /// Options for the design-time tools (<c>dotnet ef migrations add</c>, through an <c>IDesignTimeDbContextFactory</c>
     /// in the module): the same provider, naming and history table as at run time, with no connection, no data source
     /// and no interceptor. Never use them to reach a database.

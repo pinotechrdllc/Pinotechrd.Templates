@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MyApp.BuildingBlocks.Application.Security;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
+using MyApp.Modules.Access.Infrastructure.Seeding;
 using Pinotechrd.Security.Interfaces;
 
 namespace MyApp.Modules.Access.Infrastructure.Persistence;
@@ -48,6 +50,24 @@ public static class AccessPersistenceRegistration
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
         services.TryAddScoped<ITenantDirectory, CatalogTenantDirectory>();
         services.TryAddScoped<ITenantProvisioner, TenantProvisioner>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the seeding of the Access module (ADR 0013), for the migrator only: the <see cref="CatalogPlanSeeder"/>
+    /// of the catalog's plans (scoped, on <see cref="CatalogDbContext"/>, so <see cref="AddAccessCatalog"/> comes with it)
+    /// and the <see cref="TenantSecuritySeeder"/> the tenant migrator runs for every tenant. Both read the
+    /// <see cref="PermissionCatalogue"/>, registered here when no permission is.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The same service collection, for chaining.</returns>
+    public static IServiceCollection AddAccessSeeding(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddPermissions();
+        services.TryAddScoped<CatalogPlanSeeder>();
+        services.AddTenantSeeder<TenantSecuritySeeder>();
         return services;
     }
 }

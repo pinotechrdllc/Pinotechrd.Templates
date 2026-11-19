@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
+using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence;
 
@@ -43,6 +44,10 @@ public static partial class MigratorComposition
         // The catalog first: shared contexts are migrated in registration order, before any tenant.
         services.AddAccessCatalog();
         services.AddAccessPersistence();
+        // What migrate seeds (ADR 0013): the plans in the catalog, each tenant's modules and permissions, from the
+        // permissions the modules declare, the same registrations the API makes.
+        services.AddAccessPermissions();
+        services.AddAccessSeeding();
         AddLayers(builder);
         AddModules(builder);
 

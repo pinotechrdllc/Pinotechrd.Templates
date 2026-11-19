@@ -21,8 +21,9 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// <item>Takes the tenant's advisory lock on a connection of its own, creates the schema if it is missing, creates the
 /// tenant's <c>NOLOGIN</c> role (<see cref="TenantRoleName.For"/>) and grants it data rights in that schema and the
 /// application login membership in it, then, in a new scope set to that tenant in migration mode (its connections keep
-/// the migrator's login), asks each module's context for its pending migrations and migrates it when there are any.
-/// Before each module it checks that the lock connection still holds the lock.</item>
+/// the migrator's login), asks each module's context for its pending migrations and migrates it when there are any,
+/// then runs each <see cref="ITenantSeeder"/> in registration order. Before each module and each seeder it checks that the
+/// lock connection still holds the lock.</item>
 /// </list>
 /// <para>
 /// Why a session lock on its own connection, and not <c>pg_advisory_xact_lock</c>: EF Core migrates in transactions of
@@ -109,6 +110,7 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     private readonly IServiceScopeFactory _scopes;
     private readonly TenantDataSource _dataSource;
     private readonly List<IModuleMigrations> _modules;
+    private readonly List<ITenantSeeder> _seeders;
     private readonly SemaphoreSlim _slots;
     private readonly string? _applicationRoleName;
     private readonly string? _applicationRole;
@@ -118,11 +120,16 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     private uint _databaseOid;
 
     public TenantMigrator(
-        IServiceScopeFactory scopes, TenantDataSource dataSource, IEnumerable<IModuleMigrations> modules, IOptions<TenantMigratorOptions> options)
+        IServiceScopeFactory scopes,
+        TenantDataSource dataSource,
+        IEnumerable<IModuleMigrations> modules,
+        IEnumerable<ITenantSeeder> seeders,
+        IOptions<TenantMigratorOptions> options)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(modules);
+        ArgumentNullException.ThrowIfNull(seeders);
         ArgumentNullException.ThrowIfNull(options);
 
         _applicationRoleName = options.Value.ApplicationRole;
@@ -130,6 +137,8 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         _scopes = scopes;
         _dataSource = dataSource;
         _modules = Order(modules);
+        // Registration order, as the container gives them.
+        _seeders = [.. seeders];
         Capacity = CapacityOf(dataSource.Value);
         _slots = new SemaphoreSlim(Capacity, Capacity);
     }
@@ -249,6 +258,15 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
                     results.Add(new ModuleMigrationResult(module.ModuleName, [], Succeeded: false));
                     throw;
                 }
+            }
+
+            // The seeders last, in the same scope and under the same lock: every table they write exists by now, and two
+            // runs on one tenant never seed at once. A seeder's failure is the tenant's failure.
+            foreach (var seeder in _seeders)
+            {
+                await EnsureLockHeldAsync(lockConnection, TenantLockPrefix + TenantSchemaName.For(tenantId), cancellationToken)
+                    .ConfigureAwait(false);
+                await seeder.SeedAsync(scope.ServiceProvider, tenantId, cancellationToken).ConfigureAwait(false);
             }
         }
     }
