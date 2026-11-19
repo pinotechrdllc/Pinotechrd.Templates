@@ -97,6 +97,25 @@ internal sealed class KeyRingDatabase : IAsyncDisposable
         _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 
+    /// <summary>Inserts, as the application login, <paramref name="copies"/> copies of the last row (name, XML, signature, signer) and returns their ids.</summary>
+    public async Task<List<int>> ReplayLastRowAsApplicationAsync(int copies)
+    {
+        await using var connection = new NpgsqlConnection(_asApplication);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            $"INSERT INTO {KeysTable} (friendly_name, xml, signature, signer) SELECT friendly_name, xml, signature, signer FROM {KeysTable}, generate_series(1, @copies) WHERE id = (SELECT max(id) FROM {KeysTable}) RETURNING id",
+            connection);
+        command.Parameters.AddWithValue("copies", copies);
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        var ids = new List<int>();
+        while (await reader.ReadAsync(TestContext.Current.CancellationToken))
+        {
+            ids.Add(reader.GetInt32(0));
+        }
+
+        return ids;
+    }
+
     /// <summary>The friendly name of the first row of the ring.</summary>
     public async Task<string> FirstFriendlyNameAsync() => (await ColumnAsync($"SELECT friendly_name FROM {KeysTable} ORDER BY id LIMIT 1"))[0];
 

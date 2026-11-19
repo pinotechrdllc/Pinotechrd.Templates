@@ -439,6 +439,86 @@ public class DataProtectionKeyIntegrityTests(PostgresFixture postgres)
         Assert.Equal(expectedRead, manager.GetAllKeys().Any(key => key.KeyId == lateKeyId));
     }
 
+    // Breaks when exact copies of a signed revocation row (the application login can read and copy it) are all kept: the ring
+    // would grow with every copy and each reload would carry them, or the warnings would carry the row's XML.
+    [Fact]
+    public async Task ExactCopiesOfASignedRevocationRowAreSkippedAndLoggedWithTheirIdsOnly()
+    {
+        const string Reason = "secret-reason-of-the-revocation";
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        Guid revokedKeyId;
+        using (var first = database.Host(files))
+        {
+            _ = ProtectorOf(first).Protect(Payload);
+            var manager = first.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>();
+            revokedKeyId = manager.GetAllKeys().Single().KeyId;
+            manager.RevokeKey(revokedKeyId, Reason);
+        }
+
+        var copyIds = await database.ReplayLastRowAsApplicationAsync(50);
+        Assert.Equal(50, copyIds.Count);
+
+        using var host = database.Host(files);
+        var sink = host.CaptureLogs();
+        var repository = host.Services
+            .GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.DataProtection.KeyManagement.KeyManagementOptions>>()
+            .Value.XmlRepository!;
+
+        var firstLoad = repository.GetAllElements();
+        var reload = repository.GetAllElements();
+
+        Assert.Single(firstLoad, e => e.Name.LocalName == "revocation");
+        Assert.Single(reload, e => e.Name.LocalName == "revocation");
+        var warnings = RepositoryWarnings(sink);
+        Assert.NotEmpty(warnings);
+        foreach (var text in sink.Events.SelectMany(e => e.TextsOf()))
+        {
+            Assert.DoesNotContain(Reason, text, StringComparison.Ordinal);
+            Assert.DoesNotContain(revokedKeyId.ToString(), text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        foreach (var warning in warnings)
+        {
+            var message = warning.RenderMessage(CultureInfo.InvariantCulture);
+            Assert.Contains(copyIds, id => Regex.IsMatch(message, $@"\b{id.ToString(CultureInfo.InvariantCulture)}\b", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        }
+    }
+
+    // Breaks when a late row that was outside the window stays missed until the process restarts: after the periodic full read
+    // (24 hours) the ring picks it up.
+    [Fact]
+    public async Task ALateRowOutsideTheWindowIsPickedUpAfterTheFullReadPeriod()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var certificate = files.LoadWithPrivateKey();
+        _ = await ProtectWithLegitimateHostAsync(database, files);
+        await database.InsertWithIdAsOwnerAsync(5000, "key-high", "<junk />", signature: null, signer: null);
+        var clock = new OffsetTimeProvider();
+        using var host = database.Host(files);
+        host.WithServices(services => services.AddSingleton<TimeProvider>(clock));
+        var manager = host.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>();
+        Assert.Single(manager.GetAllKeys());
+        var late = ForgeEncryptedFor(files, await database.FirstKeyXmlAsync());
+        var lateKeyId = Guid.Parse(System.Xml.Linq.XElement.Parse(late.Xml).Attribute("id")!.Value);
+        await database.InsertWithIdAsOwnerAsync(100, "key-late", late.Xml, KeyForgery.Sign(certificate, "key-late", late.Xml), KeyForgery.Thumbprint(certificate));
+        Assert.DoesNotContain(manager.GetAllKeys(), key => key.KeyId == lateKeyId);
+
+        clock.Advance(TimeSpan.FromHours(25));
+
+        Assert.Contains(manager.GetAllKeys(), key => key.KeyId == lateKeyId);
+    }
+
+    private sealed class OffsetTimeProvider : TimeProvider
+    {
+        private TimeSpan _offset;
+
+        public void Advance(TimeSpan by) => _offset += by;
+
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + _offset;
+    }
+
     private static List<LogEvent> RepositoryWarnings(CollectingSink sink) =>
         [.. sink.Events.Where(e => e.Level >= LogEventLevel.Warning && (e.CategoryOf() ?? string.Empty).EndsWith("DatabaseXmlRepository", StringComparison.Ordinal))];
 
