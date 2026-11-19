@@ -23,8 +23,11 @@ public class PrincipalReadingTests
 
     private static ApiHostFactory Host() =>
         new ApiHostFactory().WithServices(services =>
-            services.AddAuthentication(MultiIdentityHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, MultiIdentityHandler>(MultiIdentityHandler.SchemeName, _ => { }))
+            {
+                services.AddAuthentication(MultiIdentityHandler.SchemeName)
+                    .AddScheme<AuthenticationSchemeOptions, MultiIdentityHandler>(MultiIdentityHandler.SchemeName, _ => { });
+                TestAuthenticationHandler.MakeDefault(services, MultiIdentityHandler.SchemeName);
+            })
             .WithIdentityFixtures();
 
     private static Task<HttpResponseMessage> AsAsync(HttpClient client, string path, string mode) =>

@@ -1,6 +1,6 @@
 using System.Xml.Linq;
 
-namespace MyApp.Api.Tests.Architecture.Modular;
+namespace MyApp.Api.Tests.Architecture;
 
 /// <summary>
 /// The dependency rules of a modular project, as functions over assembly names: an assembly name and the names it

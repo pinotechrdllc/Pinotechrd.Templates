@@ -69,7 +69,8 @@ public class DenyByDefaultTests
             HttpMethod.Get, ProblemFixtureEndpoint.AdminOnly, headers: new Dictionary<string, string> { ["Authorization"] = authorization });
 
         await ProblemAssert.IsProblemAsync(response, 401, "unauthorized");
-        Assert.Equal(["Bearer"], response.Values("WWW-Authenticate"));
+        // The bearer scheme of the Access module says why it refused a token (error="invalid_token"); the scheme stays Bearer.
+        Assert.StartsWith("Bearer", Assert.Single(response.Values("WWW-Authenticate")), StringComparison.Ordinal);
     }
 
     // Breaks when an endpoint that must stay open to anyone (the version, the probes of the orchestrator, the OpenAPI
@@ -285,7 +286,13 @@ public class DenyByDefaultTests
                 services.AddAuthentication(ChallengingHandler.SchemeName)
                     .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, _ => { })
                     .AddScheme<AuthenticationSchemeOptions, ChallengingHandler>(ChallengingHandler.SchemeName, _ => { });
-                services.Configure<AuthenticationOptions>(options => options.DefaultAuthenticateScheme = TestAuthenticationHandler.SchemeName);
+                services.Configure<AuthenticationOptions>(options =>
+                {
+                    options.DefaultAuthenticateScheme = TestAuthenticationHandler.SchemeName;
+                    // The Access module sets challenge and forbid defaults of its own, which win over DefaultScheme.
+                    options.DefaultChallengeScheme = ChallengingHandler.SchemeName;
+                    options.DefaultForbidScheme = ChallengingHandler.SchemeName;
+                });
             }
         };
 

@@ -61,7 +61,14 @@ $sharedPaths = @(
     "src/BuildingBlocks/$projectName.BuildingBlocks.Web",
     'contract',
     "tests/$projectName.BuildingBlocks.Tests",
-    "tests/$projectName.Api.Tests"
+    "tests/$projectName.Api.Tests",
+    # The Access module is part of both architectures.
+    "src/Modules/Access/$projectName.Modules.Access.Contracts/$projectName.Modules.Access.Contracts.csproj",
+    "src/Modules/Access/$projectName.Modules.Access.Domain/$projectName.Modules.Access.Domain.csproj",
+    "src/Modules/Access/$projectName.Modules.Access.Application/$projectName.Modules.Access.Application.csproj",
+    "src/Modules/Access/$projectName.Modules.Access.Infrastructure/$projectName.Modules.Access.Infrastructure.csproj",
+    "src/Modules/Access/$projectName.Modules.Access.Endpoints/$projectName.Modules.Access.Endpoints.csproj",
+    "src/Modules/Access/$projectName.Modules.Access.Endpoints/AccessModule.cs"
 )
 $architecturePaths = @{
     clean   = @(
@@ -75,7 +82,6 @@ $architecturePaths = @{
         @{ Path = "tests/$projectName.Api.Tests/Architecture/Clean"; Required = $true }
     )
     modular = @(
-        @{ Path = 'src/Modules'; Required = $true },
         @{ Path = "src/Modules/{Module}/$projectName.Modules.{Module}.Contracts/$projectName.Modules.{Module}.Contracts.csproj"; Required = $true },
         @{ Path = "src/Modules/{Module}/$projectName.Modules.{Module}.Domain/$projectName.Modules.{Module}.Domain.csproj"; Required = $true },
         @{ Path = "src/Modules/{Module}/$projectName.Modules.{Module}.Application/$projectName.Modules.{Module}.Application.csproj"; Required = $true },
@@ -188,6 +194,19 @@ function Assert-NameAbsent([string]$Root, [string]$Module) {
     if ($withText) { throw "Module name '$Module' found in the content of a clean output: $($withText.FullName -join ', ')" }
 }
 
+# The modules under src/Modules: Access in every output, plus the stamp module in a modular one. The host composes
+# Access exactly once, in the shared composition file.
+function Assert-Modules([string]$Root, [string]$Architecture, [string]$Module) {
+    $expected = @('Access') + @(if ($Architecture -eq 'modular') { $Module })
+    $actual = @(Get-ChildItem -LiteralPath (Join-Path $Root 'src/Modules') -Directory -Force | ForEach-Object Name)
+    if (Compare-Object ($expected | Sort-Object) ($actual | Sort-Object) -CaseSensitive) {
+        throw "The $Architecture output has the modules '$($actual -join ', ')', expected '$($expected -join ', ')'."
+    }
+    $composition = Join-Path $Root "src/$projectName.Api/BusinessComposition.cs"
+    $registrations = @(Select-String -LiteralPath $composition -SimpleMatch 'AddModule<AccessModule>')
+    if ($registrations.Count -ne 1) { throw "The host registers AccessModule $($registrations.Count) times, expected once." }
+}
+
 function Assert-Layout([string]$Root, [string]$Architecture, [string]$Module) {
     # A clean case has no module; any name works to build the paths it must not contain.
     if (-not $Module) { $Module = 'Core' }
@@ -200,6 +219,8 @@ function Assert-Layout([string]$Root, [string]$Architecture, [string]$Module) {
     if ($missing) { throw "Missing from the $Architecture layout: $($missing -join ', ')" }
     $extra = $mustNotExist | Where-Object { Test-Path -LiteralPath (Join-Path $Root $_) }
     if ($extra) { throw "Not part of the $Architecture layout: $($extra -join ', ')" }
+
+    Assert-Modules $Root $Architecture $Module
 
     $config = Get-ChildItem -LiteralPath $Root -Recurse -Directory -Force -Filter '.template.config'
     if ($config) { throw "Template configuration left: $($config.FullName -join ', ')" }

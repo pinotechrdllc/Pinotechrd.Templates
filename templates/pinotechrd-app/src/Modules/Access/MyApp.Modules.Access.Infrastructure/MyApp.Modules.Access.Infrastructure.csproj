@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <!-- With the Endpoints project of this module, the only projects that reference the security library. -->
+  <ItemGroup>
+    <PackageReference Include="Pinotechrd.Security" />
+    <PackageReference Include="Pinotechrd.Security.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\MyApp.Modules.Access.Application\MyApp.Modules.Access.Application.csproj" />
+  </ItemGroup>
+
+</Project>

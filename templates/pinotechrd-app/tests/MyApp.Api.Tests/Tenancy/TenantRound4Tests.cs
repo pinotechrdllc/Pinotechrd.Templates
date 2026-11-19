@@ -52,7 +52,7 @@ public class DefaultPathHostTests(PostgresFixture postgres)
 
         await using var factory = new ApiHostFactory().WithDatabase(connectionString).WithServices(services =>
         {
-            services.AddTenantDbContext<AccessContext>("Access");
+            services.AddTenantDbContext<AccessContext>("Ledger");
             services.AddSingleton<IEndpoint, TenantFailureEndpoint>();
         });
         var logs = factory.CaptureLogs();

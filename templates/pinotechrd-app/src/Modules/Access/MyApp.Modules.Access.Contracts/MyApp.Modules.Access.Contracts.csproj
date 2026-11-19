@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The public face of the Access module: the only project another module may reference. Interfaces, records and
+       enums only; the only other type allowed is the assembly marker AccessContractsAssembly. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+</Project>

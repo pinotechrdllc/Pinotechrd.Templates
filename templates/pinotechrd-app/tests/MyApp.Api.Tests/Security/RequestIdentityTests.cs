@@ -339,7 +339,7 @@ public class RequestIdentityTests
     // ---- Custom claim types (the Identity section) ----
 
     private static ApiHostFactory CustomClaimTypes(string userType, string tenantType) =>
-        Host().WithSetting("Identity:UserIdClaimType", userType).WithSetting("Identity:TenantIdClaimType", tenantType);
+        Host().WithEarlySetting("Identity:UserIdClaimType", userType).WithEarlySetting("Identity:TenantIdClaimType", tenantType);
 
     // Breaks when the claim types of the settings are not used: the identity is then read from `sub` and `tenant_id`.
     [Theory]

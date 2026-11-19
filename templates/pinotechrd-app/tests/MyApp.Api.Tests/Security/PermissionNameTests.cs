@@ -174,18 +174,18 @@ public class PermissionNameTests
     [Fact]
     public async Task AValidNameAnEndpointDeclaresIsWhatTheCheckerReceives()
     {
-        var checker = new TestPermissionChecker("Access.Users.Read");
+        var checker = new TestPermissionChecker("Reports.Users.Read");
         using var factory = new ApiHostFactory()
             .WithServices(TestAuthenticationHandler.Register)
-            .WithServices(services => services.AddPermissions("Access.Users.Read"))
-            .WithEndpoints(routes => routes.MapGet("/access-fixtures/read", () => Results.Ok()).RequirePermission("Access.Users.Read"))
-            .WithPermissionChecker(checker, "Access");
+            .WithServices(services => services.AddPermissions("Reports.Users.Read"))
+            .WithEndpoints(routes => routes.MapGet("/access-fixtures/read", () => Results.Ok()).RequirePermission("Reports.Users.Read"))
+            .WithPermissionChecker(checker, "Reports");
         using var client = factory.CreateClient();
 
         using var response = await client.SendAsync("/api/v1/access-fixtures/read", user: "alice");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("Access.Users.Read", Assert.Single(checker.Calls).Permission);
+        Assert.Equal("Reports.Users.Read", Assert.Single(checker.Calls).Permission);
     }
 
     // A route builder to declare on, without starting a host: the declaration throws where it is written.

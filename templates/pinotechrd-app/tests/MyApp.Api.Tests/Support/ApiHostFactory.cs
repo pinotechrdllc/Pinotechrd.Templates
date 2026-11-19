@@ -34,7 +34,9 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public const string RemoteAddressHeader = "X-Test-Remote-Address";
 
     private readonly string _environment;
-    private readonly Dictionary<string, string?> _settings = new()
+    // The Access module needs its JWT settings to start: every host gets the fake ones of AccessJwt, which a test replaces
+    // (or empties, to prove the start fails) with WithSetting.
+    private readonly Dictionary<string, string?> _settings = new(AccessJwt.Settings)
     {
         [DatabaseRegistration.ConnectionStringKey] = TestDatabase.PlaceholderConnectionString,
     };
