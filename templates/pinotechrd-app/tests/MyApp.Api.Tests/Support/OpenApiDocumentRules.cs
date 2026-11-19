@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,13 +18,19 @@ internal static partial class OpenApiDocumentRules
     /// <summary>
     /// What the endpoints of a host imply for their documented operations, keyed by <c>METHOD path</c> as the document
     /// writes it. There are three kinds of operation: anonymous (<c>AllowAnonymous()</c>: no security requirement, no 401,
-    /// no 403), authenticated (<c>AuthenticatedOnly()</c>: the <c>Bearer</c> requirement and 401, no 403) and permission
+    /// no 403, unless the endpoint declares one of them itself), authenticated (<c>AuthenticatedOnly()</c>: the <c>Bearer</c> requirement and 401, no 403) and permission
     /// (<c>RequirePermission</c>: the requirement, 401 and 403). <see cref="Authenticated"/> holds both of the last two
     /// kinds, <see cref="Permission"/> the last one only. <see cref="Unlimited"/> holds the operations that opted out of
-    /// rate limiting (and so do not declare 429).
+    /// rate limiting (and so do not declare 429). <see cref="Declared"/> holds <c>METHOD path STATUS</c> for each 401 or 403 an
+    /// endpoint declares itself (<c>ProducesProblem</c>): an anonymous operation such as the sign-in, whose own answers include
+    /// 401 and 403, documents exactly those, and nothing is implied for it.
     /// </summary>
     public sealed record EndpointExpectations(
-        IReadOnlySet<string> Authenticated, IReadOnlySet<string> Permission, IReadOnlySet<string> Unlimited);
+        IReadOnlySet<string> Authenticated, IReadOnlySet<string> Permission, IReadOnlySet<string> Unlimited, IReadOnlySet<string>? Declared = null)
+    {
+        /// <summary>Whether the endpoint of <paramref name="key"/> (<c>METHOD path</c>) declares <paramref name="status"/> itself.</summary>
+        public bool DeclaresItself(string key, string status) => Declared?.Contains($"{key} {status}") == true;
+    }
 
     /// <summary>Reads the access declaration and the rate limiting metadata of the endpoints registered in the host.</summary>
     public static EndpointExpectations ExpectationsOf(IServiceProvider services)
@@ -31,6 +38,7 @@ internal static partial class OpenApiDocumentRules
         var authenticated = new HashSet<string>(StringComparer.Ordinal);
         var permission = new HashSet<string>(StringComparer.Ordinal);
         var unlimited = new HashSet<string>(StringComparer.Ordinal);
+        var declared = new HashSet<string>(StringComparer.Ordinal);
         var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>();
         foreach (var endpoint in endpoints)
         {
@@ -40,6 +48,8 @@ internal static partial class OpenApiDocumentRules
             var requiresAuthentication = requiresPermission
                 || (endpoint.Metadata.OfType<AuthenticatedOnlyMetadata>().Any() && !endpoint.Metadata.OfType<IAllowAnonymous>().Any());
             var disabled = endpoint.Metadata.OfType<DisableRateLimitingAttribute>().Any();
+            var ownStatuses = endpoint.Metadata.OfType<IProducesResponseTypeMetadata>()
+                .Select(m => m.StatusCode).Where(code => code is 401 or 403).Distinct().ToArray();
             foreach (var method in methods)
             {
                 var key = $"{method.ToUpperInvariant()} {path}";
@@ -57,10 +67,15 @@ internal static partial class OpenApiDocumentRules
                 {
                     unlimited.Add(key);
                 }
+
+                foreach (var status in ownStatuses)
+                {
+                    declared.Add($"{key} {status}");
+                }
             }
         }
 
-        return new EndpointExpectations(authenticated, permission, unlimited);
+        return new EndpointExpectations(authenticated, permission, unlimited, declared);
     }
 
     [GeneratedRegex(@"\{([^}:?*]+)[^}]*\}")]
@@ -69,7 +84,8 @@ internal static partial class OpenApiDocumentRules
     /// <summary>
     /// Every operation declares 500 as problem+json, and every operation under the API prefix also 429 (rate limited)
     /// unless the endpoint opted out of rate limiting; 401 and the <c>Bearer</c> security requirement if and only if the
-    /// endpoint requires authentication, and 403 if and only if it requires a permission (both read from
+    /// endpoint requires authentication, and 403 if and only if it requires a permission (a 401 or 403 the endpoint declares
+    /// itself is also expected, never the security requirement; all read from
     /// <paramref name="expectations"/>); 400 if and only if it has input (parameters or a body), and 408, 413 and 415 if
     /// and only if it has a request body. The document declares the <c>Bearer</c> scheme and no document-wide requirement.
     /// </summary>
@@ -88,8 +104,8 @@ internal static partial class OpenApiDocumentRules
 
             Expect("500", true);
             var key = $"{method.ToUpperInvariant()} {path}";
-            Expect("401", expectations.Authenticated.Contains(key));
-            Expect("403", expectations.Permission.Contains(key));
+            Expect("401", expectations.Authenticated.Contains(key) || expectations.DeclaresItself(key, "401"));
+            Expect("403", expectations.Permission.Contains(key) || expectations.DeclaresItself(key, "403"));
             ExpectSecurity(expectations.Authenticated.Contains(key));
             if (expectations.Unlimited.Contains(key))
             {

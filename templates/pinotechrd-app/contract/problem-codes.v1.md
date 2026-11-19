@@ -38,3 +38,6 @@ An error is expected, so it never answers 500: that status is reserved for defec
 | `tenant_provisioning_failed` | 422 | Creating or migrating the tenant's schema failed; the tenant stays provisioning and a new request resumes it. | `TenantErrorCodes` |
 | `tenant_subscription_reserved` | 409 | The subscription is reserved for the operator tenant, which only the bootstrap command provisions. | `TenantErrorCodes` |
 | `tenant_unavailable` | 403 | The tenant of the access token is not active (provisioning, suspended or cancelled). | `TenantErrorCodes` |
+| `invalid_credentials` | 401 | The sign-in was refused; one answer for an unknown tenant or user, a wrong password, a locked or an inactive account. | `AuthErrorCodes` |
+| `invalid_refresh_token` | 401 | The refresh cookie is missing, unknown, expired, revoked or already used; the cookie is dropped and the client signs in again. | `AuthErrorCodes` |
+| `csrf_rejected` | 403 | A browser request to a sign-in, refresh or logout endpoint came from a site or origin that is not allowed. | `AuthErrorCodes` |

@@ -4,7 +4,7 @@ using MyApp.Api.Tests.Support;
 namespace MyApp.Api.Tests.Security;
 
 // An operation is one of three kinds, by how its endpoint declares access:
-//   anonymous      (AllowAnonymous):     no security requirement, no 401, no 403;
+//   anonymous      (AllowAnonymous):     no security requirement, no 401, no 403 (the sign-in endpoints declare their own);
 //   authenticated  (AuthenticatedOnly):  the Bearer requirement and 401, no 403;
 //   permission     (RequirePermission):  the Bearer requirement, 401 and 403.
 public class AuthorizationContractTests(ApiHostFactory factory) : IClassFixture<ApiHostFactory>
@@ -75,9 +75,56 @@ public class AuthorizationContractTests(ApiHostFactory factory) : IClassFixture<
         var expectations = OpenApiDocumentRules.ExpectationsOf(factory.Services);
 
         Assert.Equal(
-            ["GET " + ProblemFixtureEndpoint.AdminOnly, "GET " + ProblemFixtureEndpoint.Secured],
+            ["GET " + ProblemFixtureEndpoint.AdminOnly, "GET " + ProblemFixtureEndpoint.Secured, "POST " + AuthRequests.ChangePassword],
             expectations.Authenticated.Order(StringComparer.Ordinal));
         Assert.Equal(["GET " + ProblemFixtureEndpoint.AdminOnly], expectations.Permission);
+    }
+
+    // Breaks when the sign-in, refresh and logout endpoints stop declaring the 401 and 403 their own answers include, or the
+    // rule starts reading the declaration from something else (the change of password is authenticated, not anonymous, and implies no 403).
+    [Fact]
+    public void TheAnonymousAuthEndpointsDeclareTheirOwn401And403()
+    {
+        var expectations = OpenApiDocumentRules.ExpectationsOf(factory.Services);
+
+        Assert.True(expectations.DeclaresItself("POST " + AuthRequests.Login, "401"));
+        Assert.True(expectations.DeclaresItself("POST " + AuthRequests.Login, "403"));
+        Assert.True(expectations.DeclaresItself("POST " + AuthRequests.Refresh, "401"));
+        Assert.True(expectations.DeclaresItself("POST " + AuthRequests.Refresh, "403"));
+        Assert.True(expectations.DeclaresItself("POST " + AuthRequests.Logout, "403"));
+        Assert.False(expectations.DeclaresItself("POST " + AuthRequests.Logout, "401"));
+        Assert.False(expectations.DeclaresItself("GET " + Anonymous, "401"));
+    }
+
+    // Proves the shared rule can fail: an anonymous endpoint that declares 401 itself must document it (the rule is not simply off for it).
+    [Fact]
+    public async Task SharedRuleRejectsADeclaredAnonymousOperationWithoutItsOwn401()
+    {
+        var document = await FetchAsync();
+        PostOperationOf(document, AuthRequests.Login)["responses"]!.AsObject().Remove("401");
+
+        AssertRuleRejects(document);
+    }
+
+    // Proves the shared rule can fail: an anonymous endpoint that does not declare 401 (the logout) is rejected when the document has one.
+    [Fact]
+    public async Task SharedRuleRejectsAnAnonymousOperationThatDeclaresAnother401ItsEndpointDoesNot()
+    {
+        var document = await FetchAsync();
+        var responses = PostOperationOf(document, AuthRequests.Logout)["responses"]!.AsObject();
+        responses["401"] = PostOperationOf(document, AuthRequests.Login)["responses"]!["401"]!.DeepClone();
+
+        AssertRuleRejects(document);
+    }
+
+    // Proves the shared rule can fail: a sign-in endpoint that gains the Bearer requirement is rejected, declared statuses or not.
+    [Fact]
+    public async Task SharedRuleRejectsADeclaredAnonymousOperationThatReferencesTheBearerScheme()
+    {
+        var document = await FetchAsync();
+        PostOperationOf(document, AuthRequests.Login)["security"] = OperationOf(document, ProblemFixtureEndpoint.Secured)["security"]!.DeepClone();
+
+        AssertRuleRejects(document);
     }
 
     // Proves the shared rule can fail: an authenticated operation without its 401 is rejected.
@@ -170,6 +217,8 @@ public class AuthorizationContractTests(ApiHostFactory factory) : IClassFixture<
         Assert.Equal(["Bearer"], requirement.Select(p => p.Key));
         Assert.Empty(requirement["Bearer"]!.AsArray());
     }
+
+    private static JsonObject PostOperationOf(JsonObject document, string path) => document["paths"]![path]!["post"]!.AsObject();
 
     private static JsonObject OperationOf(JsonObject document, string path) => document["paths"]![path]!["get"]!.AsObject();
 
