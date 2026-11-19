@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Pinotechrd.Security.Data;
+using Pinotechrd.Security.Entities;
 using Pinotechrd.Security.Interfaces;
 
 namespace MyApp.Modules.Access.Infrastructure.Persistence;
@@ -34,4 +35,29 @@ public sealed class AccessDbContext(DbContextOptions<AccessDbContext> options, I
             model.ExcludeCatalogFromMigrations = true;
             model.ApplicationTakesResponsibilityForSearchPath = true;
         });
+
+    /// <summary>
+    /// The library's model, plus the integrity its migrations would otherwise lack: a role's permissions and a user's
+    /// overrides reference their role and user (deleted with them), and each pair is unique. The library replaces those
+    /// sets by removing the old rows and adding distinct new ones in one save, which the unique indexes allow: EF Core
+    /// deletes before it inserts a row with the same key values. Every table stays without a schema.
+    /// </summary>
+    /// <param name="modelBuilder">The model builder.</param>
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        ArgumentNullException.ThrowIfNull(modelBuilder);
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<RolePermission>(entity =>
+        {
+            entity.HasOne<AccessRole>().WithMany().HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.RoleId, e.PermissionId }).IsUnique();
+        });
+
+        modelBuilder.Entity<UserModulePermission>(entity =>
+        {
+            entity.HasOne<AccessUser>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.UserId, e.PermissionId }).IsUnique();
+        });
+    }
 }

@@ -1,0 +1,4 @@
+# The migrations are written by dotnet ef (see README.md, Tenancy and persistence): they are generated code, so the
+# style and analysis rules of hand-written code do not apply to them. Regenerate them; never edit them by hand.
+[{Migrations,Catalog/Migrations}/*.cs]
+generated_code = true
