@@ -24,16 +24,27 @@ public sealed class DataProtectionKeyStore(IServiceScopeFactory scopes)
     public static IReadOnlyList<string> InsertColumns { get; } = ["friendly_name", "xml", "signature", "signer"];
 
     /// <summary>
-    /// Reads the rows of the key ring stored after <paramref name="lastId"/>, in the order they were stored, unchecked. Rows
-    /// are only appended, so a reader that keeps the highest id it read only fetches what is new.
+    /// Reads the rows of the key ring a reader has not processed yet, in id order, unchecked: every row after
+    /// <paramref name="lastId"/>, and the rows of the <paramref name="window"/> ids below it that are not in
+    /// <paramref name="processed"/> (a row whose transaction committed after a higher id was read). Rows are only appended,
+    /// so a reader that keeps that state only fetches what is new.
     /// </summary>
     /// <param name="lastId">The highest id already read; 0 reads every row.</param>
+    /// <param name="window">How many ids below <paramref name="lastId"/> are read again when not processed.</param>
+    /// <param name="processed">The ids already processed inside the window.</param>
     /// <returns>The rows, not tracked.</returns>
-    public IReadOnlyList<DataProtectionKey> ReadAfter(int lastId)
+    public IReadOnlyList<DataProtectionKey> ReadUnprocessed(int lastId, int window, IReadOnlyCollection<int> processed)
     {
+        ArgumentNullException.ThrowIfNull(processed);
+
+        var floor = lastId - window;
+        int[] seen = [.. processed];
         using var scope = scopes.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<DataProtectionKeysDbContext>();
-        return context.Keys.AsNoTracking().Where(k => k.Id > lastId).OrderBy(k => k.Id).ToList();
+        return context.Keys.AsNoTracking()
+            .Where(k => k.Id > lastId || (k.Id > floor && !seen.Contains(k.Id)))
+            .OrderBy(k => k.Id)
+            .ToList();
     }
 
     /// <summary>Adds an element to the key ring.</summary>

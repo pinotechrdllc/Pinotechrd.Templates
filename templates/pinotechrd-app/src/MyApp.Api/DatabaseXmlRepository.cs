@@ -40,11 +40,18 @@ internal sealed partial class DatabaseXmlRepository(
 
     private static readonly XName KeyElement = "key";
 
-    // The state of the rows read so far. Rows are only appended, so each read fetches only the rows after _lastId; every
-    // row read moves the cursor, kept or skipped, so a row is never read or counted twice.
+    // How many ids below the highest one read are read again when not processed yet. Identity ids are taken when a row is
+    // inserted, not when it commits, so a row can become visible after a higher id was read; the window picks it up.
+    // Limit: a row that commits after more than Window newer rows were inserted is missed until the process restarts.
+    private const int Window = 1000;
+
+    // The state of the rows read so far. Rows are only appended, so each read fetches only the rows after _lastId and the
+    // rows of the window not yet processed. Every row read is processed once, kept or skipped, so a row is never read or
+    // counted twice; ids that fall out of the window are pruned, so the state stays bounded.
     private readonly Lock _gate = new();
     private readonly List<XElement> _elements = [];
     private readonly HashSet<Guid> _keyIds = [];
+    private readonly HashSet<int> _processed = [];
     private int _lastId;
 
     /// <summary>The longest XML a row may hold, in characters; a longer row is skipped before it is parsed or verified.</summary>
@@ -55,16 +62,14 @@ internal sealed partial class DatabaseXmlRepository(
     {
         lock (_gate)
         {
-            var rows = store.ReadAfter(_lastId);
-            foreach (var row in rows)
+            foreach (var row in store.ReadUnprocessed(_lastId, Window, _processed))
             {
                 Accept(row);
+                _processed.Add(row.Id);
+                _lastId = Math.Max(_lastId, row.Id);
             }
 
-            if (rows.Count > 0)
-            {
-                _lastId = rows[^1].Id;
-            }
+            _processed.RemoveWhere(id => id <= _lastId - Window);
 
             return [.. _elements.Select(e => new XElement(e))];
         }
