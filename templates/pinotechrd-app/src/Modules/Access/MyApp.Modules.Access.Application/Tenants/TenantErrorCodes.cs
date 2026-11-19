@@ -23,4 +23,7 @@ public static class TenantErrorCodes
 
     /// <summary>The subscription is reserved for the operator tenant, which only the migrator's bootstrap command provisions.</summary>
     public const string SubscriptionReserved = "tenant_subscription_reserved";
+
+    /// <summary>The tenant of the token is not active (provisioning, suspended or cancelled): the request is refused.</summary>
+    public const string Unavailable = "tenant_unavailable";
 }

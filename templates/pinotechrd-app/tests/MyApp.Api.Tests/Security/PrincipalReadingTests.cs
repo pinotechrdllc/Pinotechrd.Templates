@@ -155,10 +155,10 @@ public class PrincipalReadingTests
         Assert.InRange(AuthenticatedRequestStepOrder.TenantSelection, AuthenticatedRequestStepOrder.CurrentUser + 1, AuthenticatedRequestStepOrder.Tenant - 1);
     }
 
-    // Selects TenantA for every request, at the reserved order.
+    // Selects TenantA for every request, between the tenant selection and the tenant of the token.
     private sealed class SelectTenantAStep : IAuthenticatedRequestStep
     {
-        public int Order => AuthenticatedRequestStepOrder.TenantSelection;
+        public int Order => AuthenticatedRequestStepOrder.TenantSelection + 1; // after the X-Tenant step, which holds the order itself
 
         public ValueTask<IResult?> InvokeAsync(HttpContext context)
         {

@@ -110,6 +110,20 @@ public class CorsTests
         }
     }
 
+    // Breaks when X-Tenant is missing from the allowed request headers: a browser could not send the tenant before login.
+    [Fact]
+    public async Task PreflightFromAListedOriginAllowsTheTenantHeader()
+    {
+        using var factory = FactoryWithOrigin();
+        using var client = factory.CreateClient();
+
+        using var response = await client.PreflightAsync(Listed, "POST", "Content-Type, X-Tenant");
+
+        Assert.True(response.IsSuccessStatusCode, $"Preflight answered {(int)response.StatusCode}.");
+        SecurityAssert.AllowsOrigin(response, Listed);
+        Assert.Contains("X-Tenant", Split(response.Value("Access-Control-Allow-Headers")), StringComparer.OrdinalIgnoreCase);
+    }
+
     // Breaks when the preflight cache lifetime documented as 10 minutes is lost.
     [Fact]
     public async Task PreflightMayBeCachedForTenMinutes()

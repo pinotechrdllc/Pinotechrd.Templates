@@ -19,7 +19,8 @@ namespace MyApp.BuildingBlocks.Web.Authorization;
 /// matching permission requirement in its authorization data; that requires a permission missing from the
 /// <see cref="PermissionCatalogue"/>; or that is short-circuited (<c>ShortCircuit()</c>, which skips authorization)
 /// without being anonymous, or while carrying authorization, CORS or antiforgery metadata (routing would answer
-/// 500); or whose authorization names its own <c>AuthenticationSchemes</c> (endpoints use the default scheme only).</description></item>
+/// 500); or whose authorization names its own <c>AuthenticationSchemes</c> (endpoints use the default scheme only); or
+/// that is marked <c>TenantFromHeader()</c> without being anonymous.</description></item>
 /// <item><description>Two registered permissions that differ only by case; two permission checkers for one module, or a
 /// checker registered other than with <see cref="PermissionRegistration.AddPermissionChecker{TChecker}"/>.</description></item>
 /// <item><description>An authentication setup where a challenge or a forbid has no scheme (it would answer 500), or
@@ -106,6 +107,11 @@ internal sealed class AccessDeclarationCheck : IStartupFilter
             else if (IsShortCircuited(endpoint) && CarriesMiddlewareMetadata(endpoint))
             {
                 yield return $"{name} is short-circuited (ShortCircuit()) but carries authorization, CORS or antiforgery metadata (as every endpoint of the API group does), which routing refuses with a 500 on the first request; map it outside the API group.";
+            }
+
+            if (TenantHeader.IsMarked(endpoint) && !anonymous)
+            {
+                yield return $"{name} takes its tenant from the {TenantHeader.Name} header (TenantFromHeader()) without AllowAnonymous(); only an anonymous endpoint, used before login, chooses its tenant, every other one takes it from the token.";
             }
 
             if (NamesSchemes(endpoint, authorization))

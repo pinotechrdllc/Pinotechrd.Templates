@@ -623,7 +623,7 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
 
     // Any role name PostgreSQL accepts (App-Role, a name with quotes), as a quoted identifier: every double quote is
     // doubled, so the name can never end the identifier. Refused: empty, a NUL, more than 63 bytes (PostgreSQL would cut it).
-    private static string QuoteRole(string role)
+    internal static string QuoteRole(string role)
     {
         if (string.IsNullOrEmpty(role) || role.Contains('\0', StringComparison.Ordinal) || System.Text.Encoding.UTF8.GetByteCount(role) > 63)
         {

@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using MyApp.BuildingBlocks.Application.Identity;
 using MyApp.BuildingBlocks.Application.Security;
+using MyApp.BuildingBlocks.Application.Tenancy;
 using MyApp.BuildingBlocks.Web.Telemetry;
 
 namespace MyApp.BuildingBlocks.Web.Authorization;
@@ -95,6 +96,25 @@ public static class ApiAuthorizationRegistration
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthenticatedRequestStep, TenantFromTokenStep>(
             provider => ActivatorUtilities.CreateInstance<TenantFromTokenStep>(provider, setTenant)));
+        return services;
+    }
+
+    /// <summary>
+    /// Sets the tenant of each request to an endpoint marked with <see cref="TenantHeader.TenantFromHeader{TBuilder}"/>
+    /// from the <see cref="TenantHeader.Name"/> header, when it names an active tenant of the
+    /// <see cref="ITenantCatalog"/> (see the marker for the answers). Other endpoints never read the header. Like
+    /// <see cref="AddTenantFromToken"/>, only the host sets the tenant, through <paramref name="setTenant"/>.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="setTenant">Sets the tenant of the request's scope, once.</param>
+    /// <returns>The same service collection, for chaining.</returns>
+    public static IServiceCollection AddTenantFromHeader(this IServiceCollection services, Action<HttpContext, Guid> setTenant)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(setTenant);
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthenticatedRequestStep, TenantFromHeaderStep>(
+            _ => new TenantFromHeaderStep(setTenant)));
         return services;
     }
 

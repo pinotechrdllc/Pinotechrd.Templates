@@ -13,7 +13,8 @@ namespace MyApp.BuildingBlocks.Infrastructure.Migrations;
 /// <item>Takes the global advisory lock <see cref="GlobalLockKey"/> on a connection of its own (the same try-and-wait
 /// loop as the tenant locks), so two migrator runs take turns and each migration is applied once.</item>
 /// <item>Migrates each shared context in registration order, after checking that its model keeps every object in its
-/// schema; a failure stops the run.</item>
+/// schema, then grants the application's login the reads declared for that schema (<see cref="ApplicationRead"/>); a
+/// failure stops the run.</item>
 /// <item>Reads every tenant id from the <see cref="ITenantDirectory"/> before any tenant starts, so the directory's
 /// connection is back in the pool before the tenants use it, then migrates them through the
 /// <see cref="ITenantMigrator"/>, each under its own tenant lock.</item>
@@ -33,13 +34,23 @@ public sealed class DatabaseMigrator : IDatabaseMigrator
     private readonly NpgsqlDataSource _dataSource;
     private readonly List<ISharedMigrations> _shared;
     private readonly ITenantMigrator _tenants;
+    private readonly List<ApplicationRead> _reads;
+    private readonly string? _applicationRoleName;
+    private readonly string? _applicationRole;
 
-    internal DatabaseMigrator(IServiceScopeFactory scopes, TenantDataSource dataSource, IEnumerable<ISharedMigrations> shared, ITenantMigrator tenants)
+    internal DatabaseMigrator(
+        IServiceScopeFactory scopes,
+        TenantDataSource dataSource,
+        IEnumerable<ISharedMigrations> shared,
+        ITenantMigrator tenants,
+        IEnumerable<ApplicationRead> reads,
+        string? applicationRole)
     {
         ArgumentNullException.ThrowIfNull(scopes);
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(shared);
         ArgumentNullException.ThrowIfNull(tenants);
+        ArgumentNullException.ThrowIfNull(reads);
 
         var settings = new NpgsqlConnectionStringBuilder(dataSource.Value.ConnectionString);
         if (settings.Pooling && settings.MaxPoolSize < MinimumPoolSize)
@@ -53,6 +64,9 @@ public sealed class DatabaseMigrator : IDatabaseMigrator
         _dataSource = dataSource.Value;
         _shared = [.. shared];
         _tenants = tenants;
+        _reads = [.. reads];
+        _applicationRoleName = string.IsNullOrEmpty(applicationRole) ? null : applicationRole;
+        _applicationRole = _applicationRoleName is { } role ? TenantMigrator.QuoteRole(role) : null;
     }
 
     /// <inheritdoc />
@@ -99,12 +113,52 @@ public sealed class DatabaseMigrator : IDatabaseMigrator
                     await context.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
                 }
 
+                await GrantApplicationReadsAsync(shared.Schema, cancellationToken).ConfigureAwait(false);
                 return new SharedMigrationResult(shared.Schema, pending, Error: null);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             return new SharedMigrationResult(shared.Schema, [], exception);
+        }
+    }
+
+    // Every run, once the schema's context is migrated, so a column or a login added since the last run is put right. The
+    // application's login reads the shared tables on connections that assume no tenant role: it gets USAGE on the schema
+    // and SELECT on the declared columns only. With no application role it is the migrator's own login, the owner: nothing
+    // to grant. GRANT is idempotent; it runs under the global lock, so two runs never change the same ACL at once.
+    private async Task GrantApplicationReadsAsync(string schema, CancellationToken cancellationToken)
+    {
+        var reads = _reads.Where(r => string.Equals(r.Schema, schema, StringComparison.Ordinal)).ToList();
+        if (reads.Count == 0 || _applicationRole is null)
+        {
+            return;
+        }
+
+        var connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using (connection.ConfigureAwait(false))
+        {
+            await using (var check = new NpgsqlCommand(
+                             "SELECT pg_catalog.bool_or(rolname = CURRENT_USER) FROM pg_catalog.pg_roles WHERE rolname = $1", connection))
+            {
+                check.Parameters.Add(new NpgsqlParameter { Value = _applicationRoleName });
+                switch (await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    case true:
+                        return;
+                    case not false:
+                        throw new InvalidOperationException(
+                            $"The application login {_applicationRole} named by Migrator:ApplicationRole (TenantMigratorOptions.ApplicationRole) "
+                            + "does not exist; create it, or leave the setting empty when the application connects with the migrator's own login.");
+                }
+            }
+
+            foreach (var read in reads)
+            {
+                // DDL takes no parameters: every name passed its pattern and is quoted.
+                await using var grant = new NpgsqlCommand(read.GrantSql(_applicationRole), connection);
+                await grant.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 

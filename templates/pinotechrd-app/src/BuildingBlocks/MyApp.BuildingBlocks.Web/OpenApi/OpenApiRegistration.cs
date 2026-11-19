@@ -29,7 +29,8 @@ public static class OpenApiRegistration
     /// Adds the <see cref="DocumentName"/> document, titled with the project name: without <c>servers</c>, so it does
     /// not depend on the address the application listens on, with the HTTP bearer security scheme
     /// <see cref="BearerSchemeName"/>, with the members the API always writes on the problem details schemas, and with
-    /// the error responses that the pipeline can return for each operation and its security requirement.
+    /// the error responses that the pipeline can return for each operation and its security requirement, and with the
+    /// required tenant header of the endpoints that choose their tenant before login.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -53,6 +54,7 @@ public static class OpenApiRegistration
                 return Task.CompletedTask;
             });
             options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
+            options.AddOperationTransformer<TenantHeaderOperationTransformer>();
             options.AddOperationTransformer<ProblemResponsesOperationTransformer>();
         });
         return services;

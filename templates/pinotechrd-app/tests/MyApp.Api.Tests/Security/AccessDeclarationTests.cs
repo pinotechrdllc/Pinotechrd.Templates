@@ -209,4 +209,42 @@ public class AccessDeclarationTests
 
         Assert.Contains("PUT " + RouteOf("deep/er/route/{id:int}"), message, StringComparison.Ordinal);
     }
+
+    // Breaks when the TenantFromHeader marker is accepted on an endpoint that is not anonymous: a header would choose the
+    // tenant of a request that carries a token. The start names the endpoint.
+    [Theory]
+    [InlineData("authenticated")]
+    [InlineData("permission")]
+    public void TheTenantFromHeaderMarkerWithoutAllowAnonymousStopsTheStartAndTheEndpointIsNamed(string access)
+    {
+        using var factory = Host(routes =>
+        {
+            var builder = routes.MapGet(Fixtures + "/marked", () => Results.Ok());
+            if (access == "authenticated")
+            {
+                builder.AuthenticatedOnly().TenantFromHeader();
+            }
+            else
+            {
+                builder.RequirePermission(Other).TenantFromHeader();
+            }
+        });
+
+        var message = FailureNaming(factory, RouteOf("marked"));
+
+        Assert.Contains("GET " + RouteOf("marked"), message, StringComparison.Ordinal);
+    }
+
+    // Breaks when the marker is refused on an endpoint that is anonymous (the control of the test above), or when it hides
+    // the declaration so the start reports the endpoint as undeclared.
+    [Fact]
+    public void TheTenantFromHeaderMarkerOnAnAnonymousEndpointDoesNotStopTheStart()
+    {
+        using var factory = AccessHost.WithoutDatabase().WithEndpoints(routes =>
+            routes.MapGet(Fixtures + "/marked-anonymous", () => Results.Ok()).AllowAnonymous().TenantFromHeader());
+
+        using var client = factory.CreateClient();
+
+        Assert.NotNull(client);
+    }
 }

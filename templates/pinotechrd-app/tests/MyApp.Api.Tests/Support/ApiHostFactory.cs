@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using MyApp.BuildingBlocks.Application.Security;
+using MyApp.BuildingBlocks.Application.Tenancy;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 
@@ -42,6 +43,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     };
 
     private bool _realDatabaseCheck;
+    private bool _realTenantCatalog;
     private readonly Dictionary<string, string> _earlySettings = [];
     private readonly List<Action<IServiceCollection>> _services = [];
 
@@ -60,6 +62,16 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     {
         _settings[key] = value;
         _realDatabaseCheck |= string.Equals(key, DatabaseRegistration.ConnectionStringKey, StringComparison.Ordinal);
+        return this;
+    }
+
+    /// <summary>
+    /// Keeps the Access module's catalog-backed <see cref="ITenantCatalog"/>. Without this call a host answers "active" for
+    /// every tenant id and "no tenant" for every slug, so the hosts that sign fake tokens need no catalog rows.
+    /// </summary>
+    public ApiHostFactory WithRealTenantCatalog()
+    {
+        _realTenantCatalog = true;
         return this;
     }
 
@@ -128,6 +140,11 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 });
             }
 
+            if (!_realTenantCatalog)
+            {
+                services.AddScoped<ITenantCatalog, AlwaysActiveTenantCatalog>();
+            }
+
             // First, so it also runs ahead of the platform's own forwarded headers middleware.
             services.Insert(0, ServiceDescriptor.Singleton<IStartupFilter, RemoteAddressStartupFilter>());
             foreach (var configure in _services)
@@ -135,6 +152,14 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 configure(services);
             }
         });
+    }
+
+    // Every tenant is active and no slug leads to a tenant: the answers of a catalog nobody looks into.
+    private sealed class AlwaysActiveTenantCatalog : ITenantCatalog
+    {
+        public Task<Guid?> FindActiveTenantIdAsync(string slug, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
+
+        public Task<bool> IsActiveAsync(Guid tenantId, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
     // The database being up, for the hosts that do not test the database.

@@ -39,7 +39,9 @@ public static class AccessPersistenceRegistration
     /// Registers the shared catalog context <see cref="CatalogDbContext"/> (<c>AddSharedDbContext</c> in
     /// <see cref="CatalogDbContext.Schema"/>), the <see cref="ITenantDirectory"/> that lists the catalog's tenants and the
     /// <see cref="ITenantProvisioner"/>, which needs the tenant migrator (<c>AddDatabaseMigrator</c>). Only the migrator calls
-    /// it for now: the API does not reach the catalog.
+    /// it. The API registers the catalog context alone, for <see cref="CatalogTenantCatalog"/>, and reads only the columns
+    /// declared here with <c>AddApplicationRead</c> (<c>catalog.tenants</c>: id, identifier, status), which the migrator
+    /// grants the application's login on every run.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -48,6 +50,8 @@ public static class AccessPersistenceRegistration
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
+        // What CatalogTenantCatalog reads in the API, on the application's login: nothing else of the catalog.
+        services.AddApplicationRead(CatalogDbContext.Schema, CatalogTenantCatalog.Table, [.. CatalogTenantCatalog.Columns]);
         services.TryAddScoped<ITenantDirectory, CatalogTenantDirectory>();
         services.TryAddScoped<ITenantProvisioner, TenantProvisioner>();
         return services;
