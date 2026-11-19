@@ -47,8 +47,13 @@ public static class ApiAuthorizationRegistration
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
-        services.AddAuthentication()
-            .AddScheme<AuthenticationSchemeOptions, PlaceholderAuthenticationHandler>(PlaceholderScheme, _ => { });
+        // AddAuthenticationCore, not AddAuthentication: the latter also adds Data Protection, whose hosted service creates
+        // a key ring at start and, on Linux with no key encryption configured, logs a warning. The placeholder needs no
+        // Data Protection; the real scheme's AddAuthentication brings it, together with its key storage.
+        services.AddAuthenticationCore(options => options.AddScheme<PlaceholderAuthenticationHandler>(PlaceholderScheme, displayName: null));
+        services.AddWebEncoders();
+        services.TryAddTransient<PlaceholderAuthenticationHandler>();
+        services.AddOptions<AuthenticationSchemeOptions>(PlaceholderScheme);
         services.PostConfigure<AuthenticationOptions>(options =>
         {
             if (options.DefaultScheme is null && options.DefaultAuthenticateScheme is null && options.DefaultChallengeScheme is null)
