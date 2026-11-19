@@ -14,7 +14,7 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
 
     private const string Keys = "data_protection.keys";
 
-    private const string InsertKey = "INSERT INTO " + Keys + " (friendly_name, xml) VALUES ('key-1', '<key id=\"1\" />')";
+    private const string InsertKey = "INSERT INTO " + Keys + " (friendly_name, xml, signature, signer) VALUES ('key-1', '<key id=\"1\" />', decode('01', 'hex'), 'signer-1')";
 
     private static async Task<NpgsqlConnection> MigratedAsApplicationAsync(SeparateLoginsDatabase logins)
     {
@@ -49,7 +49,7 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
         return error.SqlState;
     }
 
-    // Breaks when the migrator does not create the data_protection schema with the keys table (id, friendly_name, xml), or its
+    // Breaks when the migrator does not create the data_protection schema with the keys table (id, friendly_name, xml, signature, signer), or its
     // own history table in that schema.
     [Fact]
     public async Task TheMigratorCreatesTheDataProtectionSchemaWithTheKeysTable()
@@ -93,12 +93,35 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
         await Db.ExecuteAsync(logins.MigratorConnection, InsertKey);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT id, friendly_name, xml FROM {Keys}";
+        command.CommandText = $"SELECT id, friendly_name, xml, signature, signer FROM {Keys}";
         await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
 
         Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken));
         Assert.Equal("key-1", reader.GetString(1));
         Assert.Equal("<key id=\"1\" />", reader.GetString(2));
+        Assert.Equal(new byte[] { 0x01 }, reader.GetFieldValue<byte[]>(3));
+        Assert.Equal("signer-1", reader.GetString(4));
+    }
+
+    // Breaks when the application login cannot add the signature and the signer of a key (INSERT on those columns is missing: with
+    // a certificate every first start would fail), or cannot read them back (the signatures could not be checked).
+    [Fact]
+    public async Task TheApplicationLoginInsertsAndReadsTheSignatureAndSignerOfAKey()
+    {
+        await using var logins = await SeparateLoginsDatabase.CreateAsync(postgres);
+        await using var connection = await MigratedAsApplicationAsync(logins);
+
+        var inserted = await ExecuteAsync(
+            connection,
+            "INSERT INTO " + Keys + " (friendly_name, xml, signature, signer) VALUES ('key-3', '<key id=\"3\" />', decode('0a0b0c', 'hex'), 'abc123')");
+
+        Assert.Equal(1, inserted);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT signature, signer FROM {Keys} WHERE friendly_name = 'key-3'";
+        await using var reader = await command.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+        Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(new byte[] { 0x0a, 0x0b, 0x0c }, reader.GetFieldValue<byte[]>(0));
+        Assert.Equal("abc123", reader.GetString(1));
     }
 
     // Breaks when the application login cannot add a key (the grant of INSERT on friendly_name and xml, or the right to use the
@@ -116,7 +139,8 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
         Assert.Equal(2L, await Db.CountAsync(logins.MigratorConnection, $"SELECT count(DISTINCT id) FROM {Keys}"));
     }
 
-    // Breaks when the application login may change a stored key (a stolen login could replace a key by one it knows).
+    // Breaks when the application login may change a stored key, its signature or its signer (a stolen login could replace a key
+    // by one it knows, or re-sign it).
     [Fact]
     public async Task TheApplicationLoginCannotUpdateAKey()
     {
@@ -126,6 +150,8 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
 
         Assert.Equal("42501", await RefusalAsync(connection, $"UPDATE {Keys} SET xml = '<key id=\"changed\" />'"));
         Assert.Equal("42501", await RefusalAsync(connection, $"UPDATE {Keys} SET friendly_name = 'changed'"));
+        Assert.Equal("42501", await RefusalAsync(connection, $"UPDATE {Keys} SET signature = decode('02', 'hex')"));
+        Assert.Equal("42501", await RefusalAsync(connection, $"UPDATE {Keys} SET signer = 'changed'"));
     }
 
     // Breaks when the application login may delete keys (every protected value would become unreadable).

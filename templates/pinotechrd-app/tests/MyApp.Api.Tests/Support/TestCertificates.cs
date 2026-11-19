@@ -39,6 +39,12 @@ public sealed class TestCertificateFiles : IDisposable
 
     public string KeyPath { get; }
 
+    /// <summary>The certificate with its private key, to sign as the host does. The caller disposes it.</summary>
+    public X509Certificate2 LoadWithPrivateKey() => X509Certificate2.CreateFromPemFile(CertificatePath, KeyPath);
+
+    /// <summary>The certificate alone, as anyone who can read the database or the repository sees it. The caller disposes it.</summary>
+    public X509Certificate2 LoadPublic() => X509Certificate2.CreateFromPem(File.ReadAllText(CertificatePath));
+
     public void Dispose()
     {
         try
