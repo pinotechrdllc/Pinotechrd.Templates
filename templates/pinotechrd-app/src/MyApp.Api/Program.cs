@@ -29,6 +29,9 @@ try
     builder.AddBusiness();
     builder.Services.AddHealth();
     builder.Services.AddDatabaseWithReadiness();
+    // The Data Protection key ring in the shared database, encrypted with a certificate that is required outside
+    // Development: without a valid one the API does not start.
+    builder.Services.AddDataProtectionKeys();
     builder.Services.AddOpenApiDocument();
 
     var app = builder.Build();
