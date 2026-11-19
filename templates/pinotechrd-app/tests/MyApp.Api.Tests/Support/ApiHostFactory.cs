@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -122,6 +123,11 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             // The validation source generator only sees the endpoints of the project that calls AddValidation, so
             // the test project registers its own endpoint types the same way the API does for its own.
             services.AddTestAssemblyValidation();
+            // The security library's AddAuthentication brings Data Protection, whose default key ring lives in the user
+            // profile: on Linux the first host of a run creates the key and logs a warning (no XML encryptor), so a test
+            // asserting "no warning" failed or passed by test order. Test hosts keep their keys in memory instead; where
+            // the API keeps its keys is the Data Protection task of PLAN.md.
+            services.AddDataProtection().UseEphemeralDataProtectionProvider();
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
             // The permission of the fixture endpoint that requires one; a host that starts must know every permission its
             // endpoints require.
