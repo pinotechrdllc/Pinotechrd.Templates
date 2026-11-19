@@ -20,7 +20,8 @@ namespace MyApp.Migrator;
 /// the exit code. The report has one line for each shared schema, one per tenant (its id and the migrations applied), one
 /// for the plans seeded in the catalog once it is up to date (ADR 0013) and a summary; it never holds a connection string
 /// or a password. With the <see cref="ProvisionCommand"/> command it
-/// provisions one tenant instead (ADR 0011), once the catalog is up to date, with the same exit codes.
+/// provisions one tenant instead (ADR 0011), and with the <see cref="BootstrapCommand"/> command it bootstraps the
+/// operator tenant and its first administrator (ADR 0013), once the catalog is up to date, with the same exit codes.
 /// </summary>
 public static class MigratorHost
 {
@@ -45,6 +46,20 @@ public static class MigratorHost
     /// </summary>
     public const string ProvisionCommand = "provision";
 
+    /// <summary>
+    /// The command that creates the operator tenant and its first administrator: <c>bootstrap
+    /// --Bootstrap:Slug=operator --Bootstrap:Name=Operator --Bootstrap:AdminEmail=&lt;email&gt;</c>, with the password in
+    /// the environment (<c>Bootstrap__AdminPassword</c>) or user secrets, never on the command line.
+    /// </summary>
+    public const string BootstrapCommand = "bootstrap";
+
+    // The commands and the configuration section each one alone reads.
+    private static readonly (string Command, string Section)[] Commands =
+    [
+        (ProvisionCommand, MigratorComposition.ProvisionSectionName),
+        (BootstrapCommand, MigratorComposition.BootstrapSectionName),
+    ];
+
     /// <summary>Runs the migrator.</summary>
     /// <param name="args">The command-line arguments, such as <c>--Migrator:MaxDegreeOfParallelism=2</c>.</param>
     /// <param name="report">Where the report is written.</param>
@@ -60,22 +75,26 @@ public static class MigratorHost
 
         // A first argument that is not a setting (--Key=value, /Key=value or Key=value) is a command, stripped before the
         // configuration reads the rest. Unknown commands are refused without quoting them.
-        var provision = false;
+        string? command = null;
         if (args.Length > 0 && IsCommand(args[0]))
         {
-            if (!string.Equals(args[0], ProvisionCommand, StringComparison.Ordinal))
+            var first = args[0];
+            if (!Commands.Any(c => string.Equals(first, c.Command, StringComparison.Ordinal)))
             {
-                await report.WriteLineAsync($"Invalid settings: unknown command. The only command is '{ProvisionCommand}'; without one, the migrator migrates.")
+                await report.WriteLineAsync($"Invalid settings: unknown command. The commands are '{ProvisionCommand}' and '{BootstrapCommand}'; without one, the migrator migrates.")
                     .ConfigureAwait(false);
                 return InvalidSettings;
             }
 
-            provision = true;
+            command = first;
             args = args[1..];
         }
 
+        var provision = string.Equals(command, ProvisionCommand, StringComparison.Ordinal);
+        var bootstrap = string.Equals(command, BootstrapCommand, StringComparison.Ordinal);
+
         // A misplaced command must not silently become a full migration: the rest must be settings only.
-        if (ArgumentsFailure(args, provision) is { } refused)
+        if (ArgumentsFailure(args, command) is { } refused)
         {
             await report.WriteLineAsync($"Invalid settings: {refused}").ConfigureAwait(false);
             return InvalidSettings;
@@ -96,12 +115,21 @@ public static class MigratorHost
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
         builder.Logging.AddFilter("Microsoft.Extensions.Hosting", LogLevel.None);
         builder.Services.Configure<ConsoleLifetimeOptions>(o => o.SuppressStatusMessages = true);
-        // Provision settings from any source (the environment's Provision__Slug included) belong to the provision command
-        // only: without it they would be ignored and the migrator would migrate.
-        if (!provision && builder.Configuration.GetSection(MigratorComposition.ProvisionSectionName).Exists())
+        // A command's settings from any source (the environment's Provision__Slug included) belong to that command only:
+        // without it they would be ignored and the migrator would do something else.
+        foreach (var (other, section) in Commands)
         {
-            await report.WriteLineAsync($"Invalid settings: the '{MigratorComposition.ProvisionSectionName}' settings are only read by the '{ProvisionCommand}' command, which must be the first argument.")
-                .ConfigureAwait(false);
+            if (!string.Equals(command, other, StringComparison.Ordinal) && builder.Configuration.GetSection(section).Exists())
+            {
+                await report.WriteLineAsync($"Invalid settings: {OnlyReadBy(other, section)}").ConfigureAwait(false);
+                return InvalidSettings;
+            }
+        }
+
+        // The administrator's password only from the environment or user secrets; the message never quotes it.
+        if (bootstrap && BootstrapOptions.PasswordSourceFailure(builder.Configuration) is { } source)
+        {
+            await report.WriteLineAsync($"Invalid settings: {source}").ConfigureAwait(false);
             return InvalidSettings;
         }
 
@@ -109,6 +137,10 @@ public static class MigratorHost
         if (provision)
         {
             builder.AddProvisioning();
+        }
+        else if (bootstrap)
+        {
+            builder.AddBootstrap();
         }
 
         using var host = builder.Build();
@@ -140,6 +172,12 @@ public static class MigratorHost
             {
                 var request = host.Services.GetRequiredService<IOptions<ProvisionOptions>>().Value.ToRequest();
                 return await ProvisionAsync(host.Services, request, report, linked.Token).ConfigureAwait(false);
+            }
+
+            if (bootstrap)
+            {
+                var options = host.Services.GetRequiredService<IOptions<BootstrapOptions>>().Value;
+                return await MigratorBootstrap.RunAsync(host.Services, options, report, linked.Token).ConfigureAwait(false);
             }
 
             var parallelism = host.Services.GetRequiredService<IOptions<MigratorOptions>>().Value.MaxDegreeOfParallelism;
@@ -286,14 +324,14 @@ public static class MigratorHost
     // Why the arguments after the command (or all of them, without one) are refused; null when they are settings only.
     // They are read as the command-line configuration reads them: --Key=value, /Key=value, Key=value, or --Key / /Key
     // followed by its value. Anything else would be ignored by it. No message quotes an argument.
-    private static string? ArgumentsFailure(string[] args, bool provision)
+    private static string? ArgumentsFailure(string[] args, string? command)
     {
         for (var i = 0; i < args.Length; i++)
         {
             var argument = args[i];
-            if (string.Equals(argument, ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+            if (CommandNamed(argument) is { } misplaced)
             {
-                return $"the '{ProvisionCommand}' command must be the first argument.";
+                return $"the '{misplaced}' command must be the first argument.";
             }
 
             var prefix = argument.StartsWith("--", StringComparison.Ordinal) ? 2 : argument.StartsWith('/') ? 1 : 0;
@@ -304,14 +342,17 @@ public static class MigratorHost
 
             var separator = argument.IndexOf('=', StringComparison.Ordinal);
             var key = separator < 0 ? argument[prefix..] : argument[prefix..separator];
-            if (string.Equals(key, ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+            if (CommandNamed(key) is { } named)
             {
-                return $"'{ProvisionCommand}' is a command, not a setting; it must be the first argument.";
+                return $"'{named}' is a command, not a setting; it must be the first argument.";
             }
 
-            if (!provision && IsProvisionSetting(key))
+            foreach (var (other, section) in Commands)
             {
-                return $"the '{MigratorComposition.ProvisionSectionName}' settings are only read by the '{ProvisionCommand}' command, which must be the first argument.";
+                if (!string.Equals(command, other, StringComparison.Ordinal) && IsSettingOf(key, section))
+                {
+                    return OnlyReadBy(other, section);
+                }
             }
 
             if (separator < 0)
@@ -322,9 +363,9 @@ public static class MigratorHost
                     return "a setting has no value; settings are --Key=value.";
                 }
 
-                if (string.Equals(args[i + 1], ProvisionCommand, StringComparison.OrdinalIgnoreCase))
+                if (CommandNamed(args[i + 1]) is { } next)
                 {
-                    return $"the '{ProvisionCommand}' command must be the first argument.";
+                    return $"the '{next}' command must be the first argument.";
                 }
 
                 i++;
@@ -334,11 +375,18 @@ public static class MigratorHost
         return null;
     }
 
-    private static bool IsProvisionSetting(string key) =>
-        key.StartsWith(MigratorComposition.ProvisionSectionName + ":", StringComparison.OrdinalIgnoreCase)
-        || key.StartsWith(MigratorComposition.ProvisionSectionName + "__", StringComparison.OrdinalIgnoreCase);
+    // The command an argument names, in any case; null when it names none.
+    private static string? CommandNamed(string argument) =>
+        Commands.Select(c => c.Command).FirstOrDefault(c => string.Equals(argument, c, StringComparison.OrdinalIgnoreCase));
 
-    private static Task ReportCancelledAsync(TextWriter report) =>
+    private static bool IsSettingOf(string key, string section) =>
+        key.StartsWith(section + ":", StringComparison.OrdinalIgnoreCase)
+        || key.StartsWith(section + "__", StringComparison.OrdinalIgnoreCase);
+
+    private static string OnlyReadBy(string command, string section) =>
+        $"the '{section}' settings are only read by the '{command}' command, which must be the first argument.";
+
+    internal static Task ReportCancelledAsync(TextWriter report) =>
         report.WriteLineAsync("Migration cancelled: what finished stays applied; run the migrator again to complete the rest.");
 
     // The messages of the settings that failed their start-time validation; empty for any other failure.
@@ -354,12 +402,12 @@ public static class MigratorHost
 
     // A server error gives its SQLSTATE and text; a connection error only its type, because Npgsql's messages name the
     // host and the user. Nothing here can hold the connection string.
-    private static string Describe(Exception exception) => exception switch
+    internal static string Describe(Exception exception) => exception switch
     {
         PostgresException postgres => $"{postgres.SqlState}: {postgres.MessageText}",
         NpgsqlException => exception.GetType().Name,
         _ => $"{exception.GetType().Name}: {exception.Message}",
     };
 
-    private static string Invariant(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
+    internal static string Invariant(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 }

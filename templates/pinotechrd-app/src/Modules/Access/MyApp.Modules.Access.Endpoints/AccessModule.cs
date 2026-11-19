@@ -49,6 +49,8 @@ public sealed class AccessModule : IModule
 
         var services = context.Services;
         AddSecurity(context);
+        // After the library, so its password rules are replaced by the module's (the migrator's bootstrap uses the same).
+        services.AddAccessPasswordPolicy();
 
         services.AddAccessPersistence();
         services.AddAccessPermissions();

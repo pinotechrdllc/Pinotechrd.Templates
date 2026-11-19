@@ -20,4 +20,7 @@ public static class TenantErrorCodes
 
     /// <summary>Creating or migrating the tenant's schema failed; the tenant stays provisioning and a new attempt resumes it.</summary>
     public const string ProvisioningFailed = "tenant_provisioning_failed";
+
+    /// <summary>The subscription is reserved for the operator tenant, which only the migrator's bootstrap command provisions.</summary>
+    public const string SubscriptionReserved = "tenant_subscription_reserved";
 }

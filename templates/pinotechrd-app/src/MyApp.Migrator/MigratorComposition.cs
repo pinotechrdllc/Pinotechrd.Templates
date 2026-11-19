@@ -1,11 +1,14 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence;
+using MyApp.Modules.Access.Infrastructure.Security;
+using MyApp.Modules.Access.Infrastructure.Seeding;
 
 namespace MyApp.Migrator;
 
@@ -23,6 +26,9 @@ public static partial class MigratorComposition
 
     /// <summary>The configuration section of the <c>provision</c> command's settings.</summary>
     public const string ProvisionSectionName = "Provision";
+
+    /// <summary>The configuration section of the <c>bootstrap</c> command's settings.</summary>
+    public const string BootstrapSectionName = "Bootstrap";
 
     /// <summary>
     /// Registers the database (validated at start), the migrator's settings (validated at start), the Access module's
@@ -82,6 +88,39 @@ public static partial class MigratorComposition
                 o => o.HasValidSubscriptionId,
                 $"{ProvisionSectionName}:{nameof(ProvisionOptions.SubscriptionId)} must be a GUID other than the empty one.")
             .ValidateOnStart();
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers the settings of the <c>bootstrap</c> command (<see cref="BootstrapOptions"/>, validated at start), the
+    /// Access module's bootstrap (the target, Identity's user manager with the Access password policy and the
+    /// administrator's seeder) and silences Identity's log, whose messages can quote a user name. Called only for that
+    /// command, after <see cref="AddMigrations"/>.
+    /// </summary>
+    /// <param name="builder">The builder of the host.</param>
+    /// <returns>The same builder, for chaining.</returns>
+    public static IHostApplicationBuilder AddBootstrap(this IHostApplicationBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        // The messages name the setting and the rule, never the value.
+        builder.Services.AddOptions<BootstrapOptions>()
+            .Bind(builder.Configuration.GetSection(BootstrapSectionName))
+            .Validate(
+                o => ProvisionTenantRequest.IsValidSlug(o.Slug),
+                $"{BootstrapSectionName}:{nameof(BootstrapOptions.Slug)} must be 1 to 63 lower-case letters, digits or single hyphens, starting and ending with a letter or digit.")
+            .Validate(
+                o => ProvisionTenantRequest.IsValidName(o.Name),
+                $"{BootstrapSectionName}:{nameof(BootstrapOptions.Name)} must be 1 to {ProvisionTenantRequest.MaxNameLength} characters, not blank, without control, invisible format or separator characters.")
+            .Validate(
+                o => o.HasValidEmail,
+                $"{BootstrapSectionName}:{nameof(BootstrapOptions.AdminEmail)} must be one email address of at most {BootstrapOptions.MaxEmailLength} characters, only letters a-z or A-Z, digits and - . _ @ +.")
+            .Validate(
+                o => o.HasValidPassword,
+                $"{BootstrapOptions.AdminPasswordKey} must be {AccessPasswordPolicy.MinimumLength} to {AccessPasswordPolicy.MaximumLength} characters (Unicode scalar values), not only white space.")
+            .ValidateOnStart();
+        builder.Services.AddAccessBootstrap();
+        builder.Logging.AddFilter("Microsoft.AspNetCore.Identity", LogLevel.None);
         return builder;
     }
 

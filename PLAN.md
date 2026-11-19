@@ -140,13 +140,14 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
 - [x] One source of truth for claim types: `Pinotechrd.Security` maps the inbound `sub` claim to `ClaimTypes.NameIdentifier`, while the template reads `sub` (`Identity:UserIdClaimType`) and `tenant_id`; the Access unit makes the token handler and the template read the same claim types. Done: `Identity` decides both, tokens carry `sub`, inbound mapping is off, and a start check refuses a tenant claim type the library does not use (ADR 0009).
 - [ ] Data Protection keys: persisted in shared storage and encrypted at rest before the real scheme or the library's two-factor tokens use them (on Linux, keys without an encryptor are stored in clear and logged as a warning at start).
+- [ ] Make the advisory-lock helper one shared building block: `MigratorBootstrap` carries a copy of the internal `AdvisoryLock` try-lock.
 - [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] The `Access` module (now in both architectures, ADR 0009): home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
 - [x] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
 - [ ] The API refuses a tenant that is provisioning, suspended or cancelled (status read from the catalog after authentication), so a token for such a tenant never reaches its schema (ADR 0011).
 - [ ] Tenants endpoints: create, activate, suspend.
-- [ ] Seeding: first tenant and bootstrap administrator from configuration.
+- [x] Seeding: first tenant and bootstrap administrator from configuration. Done: `migrate` seeds plans, modules and permissions; `MyApp.Migrator bootstrap` creates the operator tenant and its administrator, the password from the environment or user secrets only. See [ADR 0013](docs/adr/0013-seeding-and-bootstrap.md).
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.
 - [ ] Phase review against the quality bar (tokens, application security, multi-tenancy); findings added as tasks.
 
