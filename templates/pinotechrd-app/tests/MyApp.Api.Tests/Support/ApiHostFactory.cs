@@ -1,6 +1,9 @@
 using System.Net;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.DataProtection;
+using System.Xml.Linq;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
+using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -125,9 +128,13 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             services.AddTestAssemblyValidation();
             // The security library's AddAuthentication brings Data Protection, whose default key ring lives in the user
             // profile: on Linux the first host of a run creates the key and logs a warning (no XML encryptor), so a test
-            // asserting "no warning" failed or passed by test order. Test hosts keep their keys in memory instead; where
-            // the API keeps its keys is the Data Protection task of PLAN.md.
-            services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            // asserting "no warning" failed or passed by test order. Test hosts keep their key ring in memory, unencrypted
+            // on purpose (the warning's subject); where the API keeps its keys is the Data Protection task of PLAN.md.
+            services.Configure<KeyManagementOptions>(options =>
+            {
+                options.XmlRepository = new InMemoryXmlRepository();
+                options.XmlEncryptor = new NullXmlEncryptor();
+            });
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
             // The permission of the fixture endpoint that requires one; a host that starts must know every permission its
             // endpoints require.
@@ -192,5 +199,27 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 });
                 next(app);
             };
+    }
+}
+
+// The key ring of one test host, gone with it: no file in the user profile, so no host depends on another's key.
+internal sealed class InMemoryXmlRepository : IXmlRepository
+{
+    private readonly List<XElement> _elements = [];
+
+    public IReadOnlyCollection<XElement> GetAllElements()
+    {
+        lock (_elements)
+        {
+            return [.. _elements.Select(e => new XElement(e))];
+        }
+    }
+
+    public void StoreElement(XElement element, string friendlyName)
+    {
+        lock (_elements)
+        {
+            _elements.Add(new XElement(element));
+        }
     }
 }
