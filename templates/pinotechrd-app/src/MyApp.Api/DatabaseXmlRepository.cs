@@ -20,7 +20,11 @@ namespace MyApp.Api;
 /// without the private key (unsigned, unknown signer, bad signature) is skipped and logged with its id only.</item>
 /// <item>Without a certificate (Development only) rows are stored unsigned and all are read.</item>
 /// <item>A row whose XML does not parse, or a key without a valid id, is skipped and logged with its id only, so one bad row
-/// does not stop the ring. A later row repeating a key id already read (a replayed signed row) is skipped the same way.</item>
+/// does not stop the ring. A later row repeating a key id already read (a replayed signed row) is skipped the same way, and
+/// so is a row whose XML is longer than <see cref="MaximumXmlLength"/> or whose signature length does not match the
+/// signer's key, before anything is parsed or verified.</item>
+/// <item>A singleton: it keeps the elements already checked and the highest row id read, and each read fetches and checks
+/// only the rows stored since, so junk rows cost once per process, not on every reload of the ring.</item>
 /// </list>
 /// </summary>
 /// <param name="store">The rows of the key ring.</param>
@@ -36,51 +40,34 @@ internal sealed partial class DatabaseXmlRepository(
 
     private static readonly XName KeyElement = "key";
 
+    // The state of the rows read so far. Rows are only appended, so each read fetches only the rows after _lastId; every
+    // row read moves the cursor, kept or skipped, so a row is never read or counted twice.
+    private readonly Lock _gate = new();
+    private readonly List<XElement> _elements = [];
+    private readonly HashSet<Guid> _keyIds = [];
+    private int _lastId;
+
+    /// <summary>The longest XML a row may hold, in characters; a longer row is skipped before it is parsed or verified.</summary>
+    internal const int MaximumXmlLength = 64 * 1024;
+
     /// <inheritdoc />
     public IReadOnlyCollection<XElement> GetAllElements()
     {
-        var elements = new List<XElement>();
-        var keyIds = new HashSet<Guid>();
-        foreach (var row in store.ReadAll())
+        lock (_gate)
         {
-            if (certificates.Current is not null && !IsSigned(row))
+            var rows = store.ReadAfter(_lastId);
+            foreach (var row in rows)
             {
-                LogUnverified(logger, row.Id);
-                continue;
+                Accept(row);
             }
 
-            XElement element;
-            try
+            if (rows.Count > 0)
             {
-                element = XElement.Parse(row.Xml);
-            }
-            catch (XmlException)
-            {
-                LogMalformed(logger, row.Id);
-                continue;
+                _lastId = rows[^1].Id;
             }
 
-            // The key manager refuses a key id twice, which would stop the ring: keep the first stored row of each key.
-            // Revocations repeat harmlessly (the key manager collects them in a set), so they pass as they are.
-            if (element.Name == KeyElement)
-            {
-                if (!Guid.TryParse((string?)element.Attribute("id"), out var keyId))
-                {
-                    LogMalformed(logger, row.Id);
-                    continue;
-                }
-
-                if (!keyIds.Add(keyId))
-                {
-                    LogDuplicate(logger, row.Id);
-                    continue;
-                }
-            }
-
-            elements.Add(element);
+            return [.. _elements.Select(e => new XElement(e))];
         }
-
-        return elements;
     }
 
     /// <inheritdoc />
@@ -99,6 +86,52 @@ internal sealed partial class DatabaseXmlRepository(
             ?? throw new InvalidOperationException("The Data Protection certificate has no RSA private key.");
         var signature = rsa.SignData(Signed(friendlyName, xml), HashAlgorithmName.SHA256, RSASignaturePadding.Pss);
         store.Append(friendlyName, xml, signature, Thumbprint(certificate));
+    }
+
+    // Checks one new row and keeps its element, under the gate.
+    private void Accept(DataProtectionKey row)
+    {
+        if (row.Xml.Length > MaximumXmlLength)
+        {
+            LogOversized(logger, row.Id);
+            return;
+        }
+
+        if (certificates.Current is not null && !IsSigned(row))
+        {
+            LogUnverified(logger, row.Id);
+            return;
+        }
+
+        XElement element;
+        try
+        {
+            element = XElement.Parse(row.Xml);
+        }
+        catch (XmlException)
+        {
+            LogMalformed(logger, row.Id);
+            return;
+        }
+
+        // The key manager refuses a key id twice, which would stop the ring: keep the first stored row of each key.
+        // Revocations repeat harmlessly (the key manager collects them in a set), so they pass as they are.
+        if (element.Name == KeyElement)
+        {
+            if (!Guid.TryParse((string?)element.Attribute("id"), out var keyId))
+            {
+                LogMalformed(logger, row.Id);
+                return;
+            }
+
+            if (!_keyIds.Add(keyId))
+            {
+                LogDuplicate(logger, row.Id);
+                return;
+            }
+        }
+
+        _elements.Add(element);
     }
 
     private static string Thumbprint(X509Certificate2 certificate) => certificate.GetCertHashString(HashAlgorithmName.SHA256);
@@ -131,7 +164,7 @@ internal sealed partial class DatabaseXmlRepository(
 
         var signer = certificates.All.FirstOrDefault(c => string.Equals(Thumbprint(c), row.Signer, StringComparison.OrdinalIgnoreCase));
         using var rsa = signer?.GetRSAPublicKey();
-        if (rsa is null)
+        if (rsa is null || signature.Length != (rsa.KeySize + 7) / 8)
         {
             return false;
         }
@@ -157,4 +190,8 @@ internal sealed partial class DatabaseXmlRepository(
     [LoggerMessage(EventId = 3, EventName = "DataProtectionKeyDuplicate", Level = LogLevel.Warning,
         Message = "Data Protection key row {RowId} is skipped: an earlier row holds the same key id.")]
     private static partial void LogDuplicate(ILogger logger, int rowId);
+
+    [LoggerMessage(EventId = 4, EventName = "DataProtectionKeyOversized", Level = LogLevel.Warning,
+        Message = "Data Protection key row {RowId} is skipped: its XML is longer than the limit.")]
+    private static partial void LogOversized(ILogger logger, int rowId);
 }

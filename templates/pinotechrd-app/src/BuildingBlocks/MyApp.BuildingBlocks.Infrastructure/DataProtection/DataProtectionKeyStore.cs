@@ -23,13 +23,17 @@ public sealed class DataProtectionKeyStore(IServiceScopeFactory scopes)
     /// <summary>The only columns an insert gives values for; the id is filled by the database.</summary>
     public static IReadOnlyList<string> InsertColumns { get; } = ["friendly_name", "xml", "signature", "signer"];
 
-    /// <summary>Reads every row of the key ring, in the order they were stored, unchecked.</summary>
+    /// <summary>
+    /// Reads the rows of the key ring stored after <paramref name="lastId"/>, in the order they were stored, unchecked. Rows
+    /// are only appended, so a reader that keeps the highest id it read only fetches what is new.
+    /// </summary>
+    /// <param name="lastId">The highest id already read; 0 reads every row.</param>
     /// <returns>The rows, not tracked.</returns>
-    public IReadOnlyList<DataProtectionKey> ReadAll()
+    public IReadOnlyList<DataProtectionKey> ReadAfter(int lastId)
     {
         using var scope = scopes.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<DataProtectionKeysDbContext>();
-        return context.Keys.AsNoTracking().OrderBy(k => k.Id).ToList();
+        return context.Keys.AsNoTracking().Where(k => k.Id > lastId).OrderBy(k => k.Id).ToList();
     }
 
     /// <summary>Adds an element to the key ring.</summary>
