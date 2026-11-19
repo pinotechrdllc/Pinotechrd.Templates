@@ -240,8 +240,13 @@ The JWT settings are in the `Access:Jwt` section, read when first used and valid
 | `Access:Jwt:Secret` | none: required | The HMAC-SHA256 signing key, at least 32 bytes (256 bits). A secret: never in `appsettings*.json`; set it through the environment (`Access__Jwt__Secret`, from the platform's secret store) or user secrets. Every instance of one deployment uses the same value. |
 | `Access:Jwt:Issuer` | `MyApp` (in `appsettings.json`) | The `iss` of the tokens the API issues and accepts. |
 | `Access:Jwt:Audience` | `MyApp` (in `appsettings.json`) | The `aud` of the tokens the API issues and accepts. |
-| `Access:Jwt:ExpiryMinutes` | `60` (the package's default) | Lifetime of an access token. |
-| `Access:Jwt:RefreshTokenExpiryDays` | `7` (the package's default) | Lifetime of a refresh token. |
+| `Access:Jwt:ExpiryMinutes` | `10` (in `appsettings.json`) | Lifetime of an access token. Short, because an access token cannot be revoked: a sign-out, a password change or a deactivated user stops refreshing at once, while a token already issued still authenticates until it expires. |
+| `Access:Jwt:RefreshTokenExpiryDays` | `7` (in `appsettings.json`) | Sliding lifetime of a refresh token: each refresh issues a new token valid this long, so a session used at least weekly stays signed in. At least 1. |
+| `Access:RefreshTokens:AbsoluteLifetime` | `30.00:00:00` (in `appsettings.json`) | Longest life of a sign-in session from its first token, however often it is refreshed (the package has no such cap), so a stolen token cannot be kept alive forever. Must not be shorter than `Access:Jwt:RefreshTokenExpiryDays`, or the host does not start. |
+
+Refresh tokens are stored in the tenant's schema (`DatabaseRefreshTokenStore`, replacing the package's in-memory store), so they survive a restart and every instance shares them: tables `refresh_token_families` (one per sign-in session) and `refresh_tokens` (only the SHA-256 of each token, never the token), without a tenant column, so a token of another tenant is not found. Every expiry is decided by the database clock (`now()`): keep the API's and the database's clocks synchronised. A refresh consumes its token in one statement, so of two concurrent refreshes with one token exactly one succeeds; presenting a consumed token again revokes its whole session (RFC 9700, section 4.14.2), and a logout revokes the session of its token. Expired rows are not purged yet (a task in PLAN.md).
+
+Accounts lock after 10 failed sign-ins in a row, for 15 minutes, new accounts included (`AccessPasswordPolicy`). A locked account's refresh also fails, and the package consumes the token before it checks the lockout: anyone who knows an email can end that user's sessions at their next refresh (within the 10-minute access token) and keep them out for 15 minutes. That is the price of stopping password guessing; a per-client sign-in rate limit comes with the auth endpoints.
 
 On a development machine, put a random secret in user secrets:
 

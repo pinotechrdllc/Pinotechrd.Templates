@@ -42,6 +42,13 @@ public partial class MigratorCommandTests(PostgresFixture postgres)
             .Order(StringComparer.Ordinal)];
     }
 
+    // Every migration of the Access context, in order, read from its assembly and not typed here.
+    private static List<string> AccessMigrations()
+    {
+        using var context = DesignContexts.Create<AccessDbContext>();
+        return [.. context.Database.GetMigrations().Order(StringComparer.Ordinal)];
+    }
+
     // Breaks when a fresh database is not migrated to the catalog schema (the five catalog tables and one history row),
     // when the run does not exit 0, or when anything is created in public.
     [Fact]

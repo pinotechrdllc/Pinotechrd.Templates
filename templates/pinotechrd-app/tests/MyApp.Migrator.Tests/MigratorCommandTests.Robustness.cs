@@ -31,8 +31,8 @@ public partial class MigratorCommandTests
 
         Assert.Equal(1, run.ExitCode);
         Assert.Equal(AccessTenantTables(), await Db.TablesOfAsync(database, TenantSchemaName.For(good)));
-        Assert.Single(await Db.ColumnAsync(
-            database, $"SELECT migration_id FROM \"{TenantSchemaName.For(good)}\".__ef_migrations_access"));
+        Assert.Equal(AccessMigrations(), await Db.ColumnAsync(
+            database, $"SELECT migration_id FROM \"{TenantSchemaName.For(good)}\".__ef_migrations_access ORDER BY migration_id"));
         var lines = run.Report.Split('\n');
         var badLine = Assert.Single(lines, l => l.Contains(Guid.Empty.ToString("D"), StringComparison.OrdinalIgnoreCase));
         Assert.Matches(FailureWord(), badLine);

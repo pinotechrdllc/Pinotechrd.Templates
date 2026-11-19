@@ -18,8 +18,8 @@ namespace MyApp.Api.Tests.Support;
 /// A PostgreSQL database shaped like the one the Access module runs on: one schema per tenant holding the module's tenant
 /// tables, and the shared <c>catalog</c> schema holding tenants, plans and subscriptions. The migrations are not part of
 /// this unit, so the tables come from the create script of the module's own context (the tenant tables, the same for every
-/// tenant, no schema in the script) and of a test-only context that also maps the catalog tables the module's context
-/// leaves out of its migrations. Rows are added through the application's own services, in a scope whose tenant is set.
+/// tenant, no schema in the script) and, for the catalog tables the module's context leaves out of its migrations, of a
+/// test-only context. Rows are added through the application's own services, in a scope whose tenant is set.
 /// </summary>
 internal static class AccessDatabase
 {
@@ -39,10 +39,14 @@ internal static class AccessDatabase
         await connection.OpenAsync(TestContext.Current.CancellationToken);
 
         await RunAsync(connection, $"CREATE SCHEMA IF NOT EXISTS \"{TenantSchemaName.ExtensionsSchema}\"");
-        // The first tenant also brings the catalog tables, which only the test-only context maps for creation.
-        await RunAsync(connection, SetSearchPath(tenants[0]));
+        // The catalog tables are only mapped for creation by the test-only context, whose script also repeats the tenant tables
+        // without the module's own tables (the refresh token ones). It runs in a Scratch schema that is dropped at once: only
+        // the catalog tables, which the script names with their schema, stay. Every tenant then gets the module's own script.
+        const string Scratch = "catalog_seed_scratch";
+        await RunAsync(connection, $"CREATE SCHEMA IF NOT EXISTS \"{Scratch}\"; SET search_path TO \"{Scratch}\"");
         await RunAsync(connection, ScriptOf<CatalogAndTenantContext>(excludeCatalog: false));
-        foreach (var tenant in tenants.Skip(1))
+        await RunAsync(connection, $"DROP SCHEMA \"{Scratch}\" CASCADE");
+        foreach (var tenant in tenants)
         {
             await RunAsync(connection, SetSearchPath(tenant));
             await RunAsync(connection, ScriptOf<AccessDbContext>(excludeCatalog: true));

@@ -20,12 +20,27 @@ public partial class BaseSettingsTests(ApiHostFactory factory) : IClassFixture<A
     [GeneratedRegex(@"://[^/\s@]*@")]
     private static partial Regex UrlCredentials();
 
+    // Lifetimes of refresh tokens, whose names contain "token" but which hold no secret: allowed only as the section
+    // itself or with a value that is a number or a duration, so a secret put under one of these names is still found.
+    private static readonly string[] TokenLifetimeKeys =
+        ["access:refreshtokens", "access:refreshtokens:absolutelifetime", "access:jwt:refreshtokenexpirydays"];
+
+    private static bool IsTokenLifetime(string lowerKey, string? value) =>
+        TokenLifetimeKeys.Contains(lowerKey, StringComparer.Ordinal)
+        && (value is null || int.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out _)
+            || TimeSpan.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out _));
+
     private static List<string> Findings(IEnumerable<KeyValuePair<string, string?>> settings)
     {
         var findings = new List<string>();
         foreach (var (key, value) in settings)
         {
             var lowerKey = key.ToLowerInvariant();
+            if (IsTokenLifetime(lowerKey, value))
+            {
+                continue;
+            }
+
             var segments = lowerKey.Split(':');
             if (SensitiveKeyFragments.Any(lowerKey.Contains) || segments.Any(x => x.EndsWith("key", StringComparison.Ordinal) || x.EndsWith("keys", StringComparison.Ordinal)))
             {
