@@ -67,6 +67,17 @@ internal sealed class KeyRingDatabase : IAsyncDisposable
     /// <summary>The XML of the first row of the ring, which the key manager wrote.</summary>
     public async Task<string> FirstKeyXmlAsync() => (await ColumnAsync($"SELECT xml FROM {KeysTable} ORDER BY id LIMIT 1"))[0];
 
+    /// <summary>Inserts, as the application login, a copy of the first row (name, XML, signature, signer) and returns its id.</summary>
+    public async Task<int> ReplayFirstRowAsApplicationAsync()
+    {
+        await using var connection = new NpgsqlConnection(_asApplication);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            $"INSERT INTO {KeysTable} (friendly_name, xml, signature, signer) SELECT friendly_name, xml, signature, signer FROM {KeysTable} ORDER BY id LIMIT 1 RETURNING id",
+            connection);
+        return (int)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+    }
+
     /// <summary>The friendly name of the first row of the ring.</summary>
     public async Task<string> FirstFriendlyNameAsync() => (await ColumnAsync($"SELECT friendly_name FROM {KeysTable} ORDER BY id LIMIT 1"))[0];
 

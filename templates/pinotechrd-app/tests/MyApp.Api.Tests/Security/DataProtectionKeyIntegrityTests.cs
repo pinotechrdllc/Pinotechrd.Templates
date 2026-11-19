@@ -285,6 +285,48 @@ public class DataProtectionKeyIntegrityTests(PostgresFixture postgres)
         AssertRingSurvives(host, legitimate, ids);
     }
 
+    // Breaks when a replayed copy of a valid signed row (inserted by the application login, which can read the row and so copy it)
+    // breaks the ring: the same key id twice must not make Protect or Unprotect fail, and the warning names the copy's id only.
+    [Fact]
+    public async Task AReplayedCopyOfAValidSignedRowDoesNotBreakTheRing()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        var legitimate = await ProtectWithLegitimateHostAsync(database, files);
+        var keyXml = await database.FirstKeyXmlAsync();
+        var duplicateId = await database.ReplayFirstRowAsApplicationAsync();
+
+        using var host = database.Host(files);
+        var sink = host.CaptureLogs();
+        var protector = ProtectorOf(host);
+
+        Assert.Equal(Payload, protector.Unprotect(legitimate));
+        Assert.Equal("another", protector.Unprotect(protector.Protect("another")));
+        var warnings = sink.Events.Where(e => e.Level >= LogEventLevel.Warning).ToList();
+        var asWord = new Regex($@"\b{duplicateId.ToString(CultureInfo.InvariantCulture)}\b", RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.Contains(warnings, e => asWord.IsMatch(e.RenderMessage(CultureInfo.InvariantCulture)));
+        Assert.DoesNotContain(sink.Events.SelectMany(e => e.TextsOf()), text => text.Contains(keyXml, StringComparison.Ordinal) || text.Contains("encryptedSecret", StringComparison.Ordinal));
+    }
+
+    // Breaks when a correctly signed key element whose id is missing or not a GUID breaks the ring instead of being skipped.
+    [Theory]
+    [InlineData("<key version=\"1\"><creationDate>2026-01-01T00:00:00Z</creationDate></key>")]
+    [InlineData("<key id=\"not-a-guid\" version=\"1\"><creationDate>2026-01-01T00:00:00Z</creationDate></key>")]
+    public async Task ASignedKeyWithoutAParseableIdIsSkippedAndTheRingStillWorks(string keyXml)
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var certificate = files.LoadWithPrivateKey();
+        var legitimate = await ProtectWithLegitimateHostAsync(database, files);
+        _ = await database.InsertAsApplicationAsync("key-noid", keyXml, KeyForgery.Sign(certificate, "key-noid", keyXml), KeyForgery.Thumbprint(certificate));
+
+        using var host = database.Host(files);
+        var protector = ProtectorOf(host);
+
+        Assert.Equal(Payload, protector.Unprotect(legitimate));
+        Assert.Equal("another", protector.Unprotect(protector.Protect("another")));
+    }
+
     private static void AssertRingSurvives(ApiHostFactory host, string legitimate, int[] malformedIds)
     {
         var sink = host.CaptureLogs();
