@@ -13,8 +13,8 @@ namespace MyApp.BuildingBlocks.Infrastructure.Migrations;
 /// <item>Takes the global advisory lock <see cref="GlobalLockKey"/> on a connection of its own (the same try-and-wait
 /// loop as the tenant locks), so two migrator runs take turns and each migration is applied once.</item>
 /// <item>Migrates each shared context in registration order, after checking that its model keeps every object in its
-/// schema, then grants the application's login the reads declared for that schema (<see cref="ApplicationRead"/>); a
-/// failure stops the run.</item>
+/// schema, then grants the application's login the reads and inserts declared for that schema
+/// (<see cref="ApplicationRead"/>); a failure stops the run.</item>
 /// <item>Reads every tenant id from the <see cref="ITenantDirectory"/> before any tenant starts, so the directory's
 /// connection is back in the pool before the tenants use it, then migrates them through the
 /// <see cref="ITenantMigrator"/>, each under its own tenant lock.</item>
@@ -124,8 +124,8 @@ public sealed class DatabaseMigrator : IDatabaseMigrator
     }
 
     // Every run, once the schema's context is migrated, so a column or a login added since the last run is put right. The
-    // application's login reads the shared tables on connections that assume no tenant role: it gets USAGE on the schema
-    // and SELECT on the declared columns only. With no application role it is the migrator's own login, the owner: nothing
+    // application's login reads the shared tables on connections that assume no tenant role: it gets USAGE on the schema,
+    // SELECT and INSERT on the declared columns only. With no application role it is the migrator's own login, the owner: nothing
     // to grant. GRANT is idempotent; it runs under the global lock, so two runs never change the same ACL at once.
     private async Task GrantApplicationReadsAsync(string schema, CancellationToken cancellationToken)
     {

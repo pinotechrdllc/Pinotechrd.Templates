@@ -44,10 +44,15 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     private readonly Dictionary<string, string?> _settings = new(AccessJwt.Settings)
     {
         [DatabaseRegistration.ConnectionStringKey] = TestDatabase.PlaceholderConnectionString,
+        // Outside Development the API refuses to start without a Data Protection certificate: every host gets a generated one
+        // (never committed), which a test replaces with WithDataProtectionCertificate, or removes (to prove the refusal) with WithoutDataProtectionCertificate.
+        [DataProtectionSettingKeys.CertificatePath] = TestCertificates.Default.CertificatePath,
+        [DataProtectionSettingKeys.KeyPath] = TestCertificates.Default.KeyPath,
     };
 
     private bool _realDatabaseCheck;
     private bool _realTenantCatalog;
+    private bool _realKeyRing;
     private readonly Dictionary<string, string> _earlySettings = [];
     private readonly List<Action<IServiceCollection>> _services = [];
 
@@ -76,6 +81,42 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public ApiHostFactory WithRealTenantCatalog()
     {
         _realTenantCatalog = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Keeps the key ring the API configures (keys in the database, encrypted with the certificate) instead of the in-memory
+    /// one every test host gets. Use it with <see cref="WithDatabase"/> on a database the migrator has migrated.
+    /// </summary>
+    public ApiHostFactory WithRealKeyRing()
+    {
+        _realKeyRing = true;
+        return this;
+    }
+
+    /// <summary>Sets the certificate that encrypts the key ring (PEM certificate and PEM private key).</summary>
+    public ApiHostFactory WithDataProtectionCertificate(TestCertificateFiles certificate)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        _settings[DataProtectionSettingKeys.CertificatePath] = certificate.CertificatePath;
+        _settings[DataProtectionSettingKeys.KeyPath] = certificate.KeyPath;
+        return this;
+    }
+
+    /// <summary>Adds a certificate that may only decrypt keys (one the ring was encrypted with before a rotation).</summary>
+    public ApiHostFactory WithPreviousDataProtectionCertificate(int index, TestCertificateFiles certificate)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        _settings[DataProtectionSettingKeys.PreviousCertificatePath(index)] = certificate.CertificatePath;
+        _settings[DataProtectionSettingKeys.PreviousKeyPath(index)] = certificate.KeyPath;
+        return this;
+    }
+
+    /// <summary>Leaves the certificate unset (even if the machine's environment sets one), for the tests of the start-up refusal.</summary>
+    public ApiHostFactory WithoutDataProtectionCertificate()
+    {
+        _settings[DataProtectionSettingKeys.CertificatePath] = null;
+        _settings[DataProtectionSettingKeys.KeyPath] = null;
         return this;
     }
 
@@ -129,12 +170,16 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             // The security library's AddAuthentication brings Data Protection, whose default key ring lives in the user
             // profile: on Linux the first host of a run creates the key and logs a warning (no XML encryptor), so a test
             // asserting "no warning" failed or passed by test order. Test hosts keep their key ring in memory, unencrypted
-            // on purpose (the warning's subject); where the API keeps its keys is the Data Protection task of PLAN.md.
-            services.Configure<KeyManagementOptions>(options =>
+            // on purpose (the warning's subject); the tests of the real key ring ask for it with WithRealKeyRing.
+            if (!_realKeyRing)
             {
-                options.XmlRepository = new InMemoryXmlRepository();
-                options.XmlEncryptor = new NullXmlEncryptor();
-            });
+                services.Configure<KeyManagementOptions>(options =>
+                {
+                    options.XmlRepository = new InMemoryXmlRepository();
+                    options.XmlEncryptor = new NullXmlEncryptor();
+                });
+            }
+
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
             // The permission of the fixture endpoint that requires one; a host that starts must know every permission its
             // endpoints require.
