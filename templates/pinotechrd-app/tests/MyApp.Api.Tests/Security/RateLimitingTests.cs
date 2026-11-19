@@ -186,4 +186,44 @@ public class RateLimitingTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
     }
+    // Breaks when the sign-in has no limit of its own (the global 300 a minute would let a script guess 300 passwords), is not
+    // 10 a minute by default, or is rejected one request early or late. No database: every attempt is refused as unknown tenant.
+    [Fact]
+    public async Task TheEleventhLoginOfAClientInAMinuteIsRejectedWith429AndRetryAfter()
+    {
+        using var factory = AccessHost.WithoutDatabase();
+        using var client = factory.AuthClient();
+
+        for (var i = 1; i <= 10; i++)
+        {
+            using var attempt = await client.LoginAsync("nobody", "someone@example.test", "Passw0rd!-Test-91");
+            Assert.True(attempt.StatusCode == HttpStatusCode.Unauthorized, $"Attempt {i} answered {(int)attempt.StatusCode}.");
+        }
+
+        using var eleventh = await client.LoginAsync("nobody", "someone@example.test", "Passw0rd!-Test-91");
+
+        await ProblemAssert.IsProblemAsync(eleventh, 429, "rate_limited");
+        Assert.InRange(SecurityAssert.RetryAfterSeconds(eleventh), 1, 60);
+    }
+
+    // Breaks when the limit of the sign-in is shared between clients (one address could lock every other out of signing in).
+    [Fact]
+    public async Task TheLoginLimitIsPerClient()
+    {
+        using var factory = AccessHost.WithoutDatabase().WithSetting(AccessHost.AuthPermitLimitKey, "1");
+        using var client = factory.AuthClient();
+        using var first = await Login(client, "10.3.8.1");
+        using var limited = await Login(client, "10.3.8.1");
+
+        using var other = await Login(client, "10.3.8.2");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, first.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, other.StatusCode);
+
+        static Task<HttpResponseMessage> Login(HttpClient client, string remote) =>
+            client.PostAsync(
+                AuthRequests.Login, "nobody", new { email = "someone@example.test", password = "Passw0rd!-Test-91" },
+                headers: (ApiHostFactory.RemoteAddressHeader, [remote]));
+    }
 }

@@ -39,15 +39,61 @@ public sealed class HttpRateLimitOptions : IValidatableObject
     [Range(typeof(TimeSpan), "00:00:01", "01:00:00", ErrorMessage = SectionName + ":" + nameof(Window) + " must be between 00:00:01 and 01:00:00.")]
     public TimeSpan Window { get; set; } = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// The stricter limit of the sign-in, refresh, logout and password change endpoints
+    /// (<see cref="HttpRateLimiting.AuthPolicy"/>), bound from <c>Http:RateLimiting:Auth</c>, on top of this one.
+    /// </summary>
+    public HttpAuthRateLimitOptions Auth { get; set; } = new();
+
     /// <inheritdoc />
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (Window > TimeSpan.Zero && PermitLimit / Window.TotalSeconds > MaximumRequestsPerSecond)
+        if (TooFast(PermitLimit, Window) is { } global)
         {
-            yield return new ValidationResult(
-                $"{SectionName}:{nameof(PermitLimit)} {PermitLimit} per {SectionName}:{nameof(Window)} {Window} allows more than "
-                + $"{MaximumRequestsPerSecond} requests per second on average, which no longer limits anyone; lower the limit or lengthen the window.",
-                [nameof(PermitLimit), nameof(Window)]);
+            yield return new ValidationResult(global, [nameof(PermitLimit), nameof(Window)]);
+        }
+
+        // Data annotations do not reach into a nested object: the auth limit is checked here, under its own names.
+        var auth = Auth ?? new HttpAuthRateLimitOptions();
+        var results = new List<ValidationResult>();
+        Validator.TryValidateObject(auth, new ValidationContext(auth), results, validateAllProperties: true);
+        foreach (var result in results)
+        {
+            yield return new ValidationResult(result.ErrorMessage, [nameof(Auth)]);
+        }
+
+        if (results.Count == 0 && TooFast(auth.PermitLimit, auth.Window, HttpAuthRateLimitOptions.SectionName) is { } strict)
+        {
+            yield return new ValidationResult(strict, [nameof(Auth)]);
         }
     }
+
+    private static string? TooFast(int permitLimit, TimeSpan window, string section = SectionName) =>
+        window > TimeSpan.Zero && permitLimit / window.TotalSeconds > MaximumRequestsPerSecond
+            ? $"{section}:{nameof(PermitLimit)} {permitLimit} per {section}:{nameof(Window)} {window} allows more than "
+                + $"{MaximumRequestsPerSecond} requests per second on average, which no longer limits anyone; lower the limit or lengthen the window."
+            : null;
+}
+
+/// <summary>
+/// The limit of the authentication endpoints, bound from <see cref="SectionName"/>: each client (see
+/// <see cref="HttpRateLimiting.ClientPartitionKey"/>) may send <see cref="PermitLimit"/> of those requests per fixed
+/// <see cref="Window"/>, counted together and on top of the global limit. It slows password guessing from one address;
+/// the account lockout covers guessing spread over many.
+/// </summary>
+public sealed class HttpAuthRateLimitOptions
+{
+    /// <summary>The configuration section the options are bound from.</summary>
+    public const string SectionName = HttpRateLimitOptions.SectionName + ":Auth";
+
+    /// <summary>
+    /// The requests a client may send per <see cref="Window"/>, 10 by default: enough for a person who mistypes a password
+    /// a few times, few for a script. Between 1 and <see cref="HttpRateLimitOptions.MaximumPermitLimit"/>.
+    /// </summary>
+    [Range(1, HttpRateLimitOptions.MaximumPermitLimit, ErrorMessage = SectionName + ":" + nameof(PermitLimit) + " must be between 1 and 10000 requests.")]
+    public int PermitLimit { get; set; } = 10;
+
+    /// <summary>The length of a window, one minute by default; between one second and one hour.</summary>
+    [Range(typeof(TimeSpan), "00:00:01", "01:00:00", ErrorMessage = SectionName + ":" + nameof(Window) + " must be between 00:00:01 and 01:00:00.")]
+    public TimeSpan Window { get; set; } = TimeSpan.FromMinutes(1);
 }

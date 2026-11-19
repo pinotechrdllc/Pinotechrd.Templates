@@ -18,16 +18,23 @@ namespace MyApp.BuildingBlocks.Web.Security;
 /// a <c>Retry-After</c> header.
 /// </summary>
 /// <remarks>
-/// A stricter limit for some endpoints (for example authentication) is added as a named policy on top of the global
-/// one, partitioned the same way, and required by those endpoints; the rejection answer above applies to it too:
+/// A stricter limit for some endpoints is a named policy on top of the global one, partitioned the same way, and
+/// required by those endpoints; the rejection answer above applies to it too. <see cref="AuthPolicy"/> is the one of
+/// the authentication endpoints; another is added the same way:
 /// <code>
-/// services.Configure&lt;RateLimiterOptions&gt;(o =&gt; o.AddPolicy("auth", context =&gt;
+/// services.Configure&lt;RateLimiterOptions&gt;(o =&gt; o.AddPolicy("exports", context =&gt;
 ///     RateLimitPartition.GetFixedWindowLimiter(HttpRateLimiting.ClientPartitionKey(context), _ =&gt; new() { PermitLimit = 5, Window = TimeSpan.FromMinutes(1) })));
-/// routes.MapPost("/login", ...).RequireRateLimiting("auth");
+/// routes.MapPost("/exports", ...).RequireRateLimiting("exports");
 /// </code>
 /// </remarks>
 public static class HttpRateLimiting
 {
+    /// <summary>
+    /// The named policy of the authentication endpoints (sign-in, refresh, logout, password change), from
+    /// <see cref="HttpRateLimitOptions.Auth"/>: those requests of one client count together against it.
+    /// </summary>
+    public const string AuthPolicy = "auth";
+
     private const string RetryAfterHeader = "Retry-After";
 
     private const string UnknownClient = "unknown";
@@ -78,15 +85,20 @@ public static class HttpRateLimiting
             {
                 var limit = settings.Value;
                 options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-                    RateLimitPartition.GetFixedWindowLimiter(ClientPartitionKey(context), _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = limit.PermitLimit,
-                        Window = limit.Window,
-                        QueueLimit = 0,
-                        AutoReplenishment = true,
-                    }));
+                    RateLimitPartition.GetFixedWindowLimiter(ClientPartitionKey(context), _ => FixedWindow(limit.PermitLimit, limit.Window)));
+                var auth = limit.Auth;
+                options.AddPolicy(AuthPolicy, context =>
+                    RateLimitPartition.GetFixedWindowLimiter(ClientPartitionKey(context), _ => FixedWindow(auth.PermitLimit, auth.Window)));
             });
     }
+
+    private static FixedWindowRateLimiterOptions FixedWindow(int permitLimit, TimeSpan window) => new()
+    {
+        PermitLimit = permitLimit,
+        Window = window,
+        QueueLimit = 0,
+        AutoReplenishment = true,
+    };
 
     private static async ValueTask OnRejectedAsync(OnRejectedContext context, CancellationToken cancellationToken)
     {

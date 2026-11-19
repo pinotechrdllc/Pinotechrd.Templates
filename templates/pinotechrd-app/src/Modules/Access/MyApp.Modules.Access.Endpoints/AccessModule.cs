@@ -12,6 +12,7 @@ using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Web.Authorization;
 using MyApp.Modules.Access.Application;
+using MyApp.Modules.Access.Application.Authentication;
 using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Endpoints.Security;
 using MyApp.Modules.Access.Infrastructure.Persistence;
@@ -66,6 +67,9 @@ public sealed class AccessModule : IModule
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
         services.TryAddScoped<ITenantCatalog, CatalogTenantCatalog>();
         services.AddAuthenticatedRequestStep<TenantStatusStep>();
+
+        // The auth endpoints (Auth/) work through this port, never through the library's free-text results.
+        services.TryAddScoped<IAccessAuthentication, AccessAuthentication>();
 
         services.AddHandlers(AccessApplicationAssembly.Assembly);
 

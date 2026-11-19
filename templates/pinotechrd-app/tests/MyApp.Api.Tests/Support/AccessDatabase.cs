@@ -177,6 +177,40 @@ internal static class AccessDatabase
         return id;
     }
 
+    /// <summary>Sets the user's lockout end, as time passing (or an operator) would: Identity reads the clock, so a test moves the end instead.</summary>
+    public static Task SetLockoutEndAsync(IServiceProvider services, Guid tenant, Guid userId, DateTimeOffset? end) =>
+        InTenantAsync(services, tenant, async scope =>
+        {
+            var db = scope.GetRequiredService<AccessDbContext>();
+            var user = await db.Users.SingleAsync(u => u.Id == userId, TestContext.Current.CancellationToken);
+            user.LockoutEnd = end;
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+
+    /// <summary>Sets whether the user is active.</summary>
+    public static Task SetUserActiveAsync(IServiceProvider services, Guid tenant, Guid userId, bool active) =>
+        InTenantAsync(services, tenant, async scope =>
+        {
+            var db = scope.GetRequiredService<AccessDbContext>();
+            var user = await db.Users.SingleAsync(u => u.Id == userId, TestContext.Current.CancellationToken);
+            user.IsActive = active;
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+
+    /// <summary>What the users table holds about the user's security state.</summary>
+    public static async Task<(string? SecurityStamp, int AccessFailedCount, DateTimeOffset? LockoutEnd)> SecurityStateAsync(
+        IServiceProvider services, Guid tenant, Guid userId)
+    {
+        (string?, int, DateTimeOffset?) state = default;
+        await InTenantAsync(services, tenant, async scope =>
+        {
+            var db = scope.GetRequiredService<AccessDbContext>();
+            var user = await db.Users.AsNoTracking().SingleAsync(u => u.Id == userId, TestContext.Current.CancellationToken);
+            state = (user.SecurityStamp, user.AccessFailedCount, user.LockoutEnd);
+        });
+        return state;
+    }
+
     /// <summary>Makes the user a member of a new role that grants <see cref="ReadCode"/>.</summary>
     public static Task GrantReadThroughARoleAsync(IServiceProvider services, Guid tenant, Guid userId) =>
         InTenantAsync(services, tenant, async scope =>

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application.Tenancy;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
@@ -22,7 +23,7 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// when its first token is saved (<see cref="RefreshTokenOptions.AbsoluteLifetime"/>), and caps every token of it.</item>
 /// <item><see cref="ConsumeAsync"/> is one <c>UPDATE ... RETURNING</c>: of two concurrent calls with one token exactly one
 /// succeeds. When it updates nothing, a second query classifies why in the order of <see cref="IRefreshTokenStore"/>,
-/// and a reused token revokes its family.</item>
+/// and a reused token revokes its family and is logged as a warning (the tenant's id only, never the token).</item>
 /// <item><see cref="SaveAsync"/> is one <c>INSERT ... SELECT</c> that creates the family on first use. A token saved
 /// into a revoked family is stored revoked; one saved while a revocation commits is still refused by the family's state
 /// when consumed.</item>
@@ -35,8 +36,12 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// <param name="context">The tenant context of the scope.</param>
 /// <param name="currentTenant">The tenant of the scope, the one whose schema the context reads.</param>
 /// <param name="options">The absolute lifetime of a family.</param>
-public sealed class DatabaseRefreshTokenStore(
-    AccessDbContext context, ICurrentTenant currentTenant, IOptions<RefreshTokenOptions> options) : IRefreshTokenStore
+/// <param name="logger">The logger of a reused token.</param>
+public sealed partial class DatabaseRefreshTokenStore(
+    AccessDbContext context,
+    ICurrentTenant currentTenant,
+    IOptions<RefreshTokenOptions> options,
+    ILogger<DatabaseRefreshTokenStore> logger) : IRefreshTokenStore
 {
     private const string SaveSql = """
         WITH created AS (
@@ -215,6 +220,8 @@ public sealed class DatabaseRefreshTokenStore(
                 // Reuse, even when the token has also expired or was revoked on its own: the session may be stolen.
                 await ExecuteAsync(RevokeFamilySql, new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = state.FamilyId }, cancellationToken)
                     .ConfigureAwait(false);
+                var tenant = currentTenant.TenantId;
+                LogReuse(logger, tenant);
                 return new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.Reused);
             case { TokenRevoked: true }:
                 return new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.Revoked);
@@ -285,6 +292,9 @@ public sealed class DatabaseRefreshTokenStore(
         DateTimeKind.Local => value.ToUniversalTime(),
         _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
     };
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A spent refresh token was presented again in tenant {TenantId}; its session is revoked.")]
+    private static partial void LogReuse(ILogger logger, Guid tenantId);
 
     private sealed record TokenState(Guid UserId, Guid FamilyId, bool FamilyRevoked, bool Consumed, bool TokenRevoked, bool Expired);
 }
