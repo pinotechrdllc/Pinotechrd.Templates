@@ -410,6 +410,35 @@ public class DataProtectionKeyIntegrityTests(PostgresFixture postgres)
         Assert.ThrowsAny<CryptographicException>(() => ProtectorOf(host).Unprotect(forged.ProtectedPayload));
     }
 
+    // Breaks when a valid signed key that commits late (its id lower than one a host already read, as when two transactions commit
+    // out of order) is never read by a host that loaded the higher id first, within the window of 1000 ids below the highest read;
+    // and documents the limit: a row more than 1000 ids below the highest read is not read.
+    [Theory]
+    [InlineData(4500, true)]
+    [InlineData(100, false)]
+    public async Task ARowThatCommitsLateWithALowerIdIsReadOnlyWithinTheWindowBelowTheHighestId(int lateId, bool expectedRead)
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var certificate = files.LoadWithPrivateKey();
+        _ = await ProtectWithLegitimateHostAsync(database, files);
+        await database.InsertWithIdAsOwnerAsync(5000, "key-high", "<junk />", signature: null, signer: null);
+        using var host = database.Host(files);
+        var manager = host.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>();
+        Assert.Single(manager.GetAllKeys());
+
+        var late = ForgeEncryptedFor(files, await database.FirstKeyXmlAsync());
+        var lateKeyId = Guid.Parse(System.Xml.Linq.XElement.Parse(late.Xml).Attribute("id")!.Value);
+        await database.InsertWithIdAsOwnerAsync(
+            lateId,
+            "key-late",
+            late.Xml,
+            KeyForgery.Sign(certificate, "key-late", late.Xml),
+            KeyForgery.Thumbprint(certificate));
+
+        Assert.Equal(expectedRead, manager.GetAllKeys().Any(key => key.KeyId == lateKeyId));
+    }
+
     private static List<LogEvent> RepositoryWarnings(CollectingSink sink) =>
         [.. sink.Events.Where(e => e.Level >= LogEventLevel.Warning && (e.CategoryOf() ?? string.Empty).EndsWith("DatabaseXmlRepository", StringComparison.Ordinal))];
 

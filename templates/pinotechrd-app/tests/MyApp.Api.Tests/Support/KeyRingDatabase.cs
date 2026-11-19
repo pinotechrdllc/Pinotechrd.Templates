@@ -78,6 +78,25 @@ internal sealed class KeyRingDatabase : IAsyncDisposable
         return (int)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
     }
 
+    /// <summary>
+    /// Inserts a row with a chosen id as the migrator login (the owner, the only one that may override the identity), to
+    /// simulate a row whose transaction commits after rows with higher ids.
+    /// </summary>
+    public async Task InsertWithIdAsOwnerAsync(int id, string? friendlyName, string xml, byte[]? signature, string? signer)
+    {
+        await using var connection = new NpgsqlConnection(_asMigrator);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = new NpgsqlCommand(
+            $"INSERT INTO {KeysTable} (id, friendly_name, xml, signature, signer) OVERRIDING SYSTEM VALUE VALUES (@id, @name, @xml, @signature, @signer)",
+            connection);
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("name", (object?)friendlyName ?? DBNull.Value);
+        command.Parameters.AddWithValue("xml", xml);
+        command.Parameters.Add(new NpgsqlParameter("signature", NpgsqlTypes.NpgsqlDbType.Bytea) { Value = (object?)signature ?? DBNull.Value });
+        command.Parameters.AddWithValue("signer", (object?)signer ?? DBNull.Value);
+        _ = await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
     /// <summary>The friendly name of the first row of the ring.</summary>
     public async Task<string> FirstFriendlyNameAsync() => (await ColumnAsync($"SELECT friendly_name FROM {KeysTable} ORDER BY id LIMIT 1"))[0];
 
