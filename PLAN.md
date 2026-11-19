@@ -124,23 +124,25 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 
 - [x] Spike: `Pinotechrd.Security` on tenant schemas selected by `search_path`. Result: works with a model override in the template, an interceptor on one shared data source and a refresh store that consumes tokens atomically; ten library gaps recorded, see [ADR 0008](docs/adr/0008-security-library-with-tenant-schemas.md).
 - [ ] One shared test host base for the API tests (the three factories will each need the JWT settings).
-- [ ] An ordered extension point after authentication in the pipeline, for tenant resolution, the per-user limiter and the user and tenant on the log event.
-- [ ] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
+- [x] Web authorization building block: deny by default; every endpoint declares exactly one of `RequirePermission`, `AuthenticatedOnly` or `AllowAnonymous`, checked at start; per-module permission checkers; user and tenant read from authenticated claims only; Bearer scheme in the contract.
+- [x] An ordered extension point after authentication in the pipeline, for tenant resolution, the per-user limiter and the user and tenant on the log event.
+- [x] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
 - [ ] The security DbContext uses the one shared data source, not a data source of its own.
 - [ ] Wire `Pinotechrd.Security`: `AddPinotechrdSecurity`, `UseTenantResolution`, the DbContext on `PinotechrdSecurityDbContext`.
 - [x] The `search_path` interceptor tolerates the tenant-less readiness probe, and the tracing filter that matches the text `SELECT 1` no longer hides application queries.
 - [x] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
 - [x] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
-- [ ] Decision pending (project owner): a database role per tenant, assumed by the connection when it is bound and verified, so the database refuses schema-qualified access to another tenant and writes to the shared `extensions` schema. Measured in review: with one role owning every schema, schema-qualified raw SQL reads another tenant, and the statement check is a guard against mistakes, not a boundary. It does not stop hostile SQL (the shared login can reset the role); only a login per tenant does.
 - [ ] Shared (catalog) migrations: a registration and a migrator entry point for a context that is not tenant-scoped, run once before the tenants under a global lock (shape described in the review of the tenant persistence unit).
 - [ ] Migrations: shared and per tenant, run by a separate migrator command, never at API start.
 - [ ] Tenant provisioning: create the schema, migrate it and seed it.
+- [ ] A database role per tenant, built with tenant provisioning (decided 2026-11-18 by the project owner on my recommendation). Provisioning creates a `NOLOGIN` role that owns or is granted only its tenant's schema and `USAGE` on `extensions`; the connection guard assumes that role in the same statement that binds the schema and verifies it with `current_user`; the application's login keeps no direct rights on tenant schemas; the migrator holds the administration rights. Why: review measured that with one role owning every schema, schema-qualified SQL reads another tenant and a table written to `extensions` by one tenant is read by another; the role makes PostgreSQL refuse both. Limit, stated in the README: it stops mistakes, not hostile SQL (the shared login can reset the role); the defence against that is having no SQL injection, and only a login per tenant (rejected for cost: one server connection per tenant) would be a hard boundary. ADR records it.
 - [ ] Refresh token store in the database, replacing the in-memory default.
 - [ ] One OpenAPI contract per architecture before a module ships endpoints: in place the Host composes the clean layers and the stamp module, so a contract generated there matches neither layout.
+- [ ] One source of truth for claim types: `Pinotechrd.Security` maps the inbound `sub` claim to `ClaimTypes.NameIdentifier`, while the template reads `sub` (`Identity:UserIdClaimType`) and `tenant_id`; the Access unit makes the token handler and the template read the same claim types.
 - [ ] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] `modular`: the `Access` module, home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.
-- [ ] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
+- [x] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
 - [ ] Tenants endpoints: create, activate, suspend.
 - [ ] Seeding: first tenant and bootstrap administrator from configuration.
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.

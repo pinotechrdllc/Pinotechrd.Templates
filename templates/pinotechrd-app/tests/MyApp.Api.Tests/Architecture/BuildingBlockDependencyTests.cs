@@ -104,6 +104,24 @@ public class BuildingBlockDependencyTests
         ReferenceRules.AssertNone(violations);
     }
 
+    // Guards the rule above against being vacuous, and states it exactly: the web building block references the application
+    // building block (the identity and permission contracts) and the domain building block, and no other solution assembly.
+    [Fact]
+    public void WebBuildingBlocksReferenceExactlyTheApplicationAndDomainBuildingBlocksAmongSolutionAssemblies()
+    {
+        var solutionReferences = ReferenceRules.ReferencedNames(ReferenceRules.BuildingBlocksWeb)
+            .Where(ReferenceRules.IsSolutionAssembly)
+            .Order(StringComparer.Ordinal);
+
+        Assert.Equal(
+            new[]
+            {
+                ReferenceRules.NameOf(ReferenceRules.BuildingBlocksApplication),
+                ReferenceRules.NameOf(ReferenceRules.BuildingBlocksDomain),
+            }.Order(StringComparer.Ordinal),
+            solutionReferences);
+    }
+
     [Fact]
     public void WebBuildingBlocksActuallyUseAspNetCore()
     {
@@ -254,11 +272,23 @@ public class BuildingBlockDependencyTests
     [Fact]
     public void SolutionReferenceCheckReportsAReferenceThatIsNotAllowed()
     {
-        // The web building block really uses the domain building block.
-        var reported = ReferenceRules.SolutionReferenceViolations(ReferenceRules.BuildingBlocksWeb);
+        // The web building block really uses the domain and the application building blocks (its authorization uses the
+        // identity and permission contracts of the application block), so each is reported unless allowed.
+        var domain = ReferenceRules.NameOf(ReferenceRules.BuildingBlocksDomain);
+        var application = ReferenceRules.NameOf(ReferenceRules.BuildingBlocksApplication);
 
-        Assert.Contains(reported, m => m.Contains(ReferenceRules.NameOf(ReferenceRules.BuildingBlocksDomain), StringComparison.Ordinal));
-        Assert.Empty(ReferenceRules.SolutionReferenceViolations(ReferenceRules.BuildingBlocksWeb, ReferenceRules.BuildingBlocksDomain));
+        var nothingAllowed = ReferenceRules.SolutionReferenceViolations(ReferenceRules.BuildingBlocksWeb);
+        var onlyDomainAllowed = ReferenceRules.SolutionReferenceViolations(ReferenceRules.BuildingBlocksWeb, ReferenceRules.BuildingBlocksDomain);
+        var onlyApplicationAllowed = ReferenceRules.SolutionReferenceViolations(ReferenceRules.BuildingBlocksWeb, ReferenceRules.BuildingBlocksApplication);
+
+        Assert.Contains(nothingAllowed, m => m.Contains(domain, StringComparison.Ordinal));
+        Assert.Contains(nothingAllowed, m => m.Contains(application, StringComparison.Ordinal));
+        Assert.DoesNotContain(onlyDomainAllowed, m => m.Contains($"'{domain}'", StringComparison.Ordinal));
+        Assert.Contains(onlyDomainAllowed, m => m.Contains($"'{application}'", StringComparison.Ordinal));
+        Assert.DoesNotContain(onlyApplicationAllowed, m => m.Contains($"'{application}'", StringComparison.Ordinal));
+        Assert.Contains(onlyApplicationAllowed, m => m.Contains($"'{domain}'", StringComparison.Ordinal));
+        Assert.Empty(ReferenceRules.SolutionReferenceViolations(
+            ReferenceRules.BuildingBlocksWeb, ReferenceRules.BuildingBlocksDomain, ReferenceRules.BuildingBlocksApplication));
     }
 
     [Fact]

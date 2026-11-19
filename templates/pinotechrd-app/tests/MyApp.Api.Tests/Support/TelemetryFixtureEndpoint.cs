@@ -24,7 +24,7 @@ internal sealed class TelemetryFixtureEndpoint : IEndpoint
             await context.Response.WriteAsync("partial body", context.RequestAborted);
             await context.Response.Body.FlushAsync(context.RequestAborted);
             throw new InvalidOperationException(ProblemFixtureEndpoint.Secret);
-        });
-        routes.MapGet("/orders-fixture/{orderId}", (string orderId) => Results.Ok(orderId));
+        }).AllowAnonymous();
+        routes.MapGet("/orders-fixture/{orderId}", (string orderId) => Results.Ok(orderId)).AllowAnonymous();
     }
 }

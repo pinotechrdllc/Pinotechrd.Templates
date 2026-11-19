@@ -22,11 +22,11 @@ internal static class SecurityRequests
         string? forwardedFor = null,
         string? forwardedProto = null,
         string? user = null,
-        string? roles = null)
+        string? claims = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, path);
         Add(request, TestAuthenticationHandler.UserHeader, user);
-        Add(request, TestAuthenticationHandler.RolesHeader, roles);
+        Add(request, TestAuthenticationHandler.ClaimsHeader, claims);
         Add(request, ApiHostFactory.RemoteAddressHeader, remote);
         Add(request, "Origin", origin);
         Add(request, "X-Forwarded-For", forwardedFor);

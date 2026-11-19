@@ -18,12 +18,17 @@ public sealed record CreateWidgetRequest(
 /// <param name="Quantity">How many widgets.</param>
 public sealed record CreateWidgetResponse(string Name, int Quantity);
 
-/// <summary>Creates a widget and echoes it back. Mapped under the module prefix and tagged with the module name.</summary>
+/// <summary>
+/// Creates a widget and echoes it back. Mapped under the module prefix and tagged with the module name. Open to anonymous
+/// callers, so the fixture tests exercise routing and validation without a login (the template ships no way to log in
+/// yet).
+/// </summary>
 public sealed class CreateWidgetEndpoint : IEndpoint
 {
     /// <inheritdoc />
     public void MapEndpoint(IEndpointRouteBuilder routes) =>
         routes.MapPost("/widgets", (CreateWidgetRequest request) => TypedResults.Ok(new CreateWidgetResponse(request.Name!, request.Quantity)))
             .WithName("CreateWidget")
-            .WithSummary("Creates a widget and returns the values received.");
+            .WithSummary("Creates a widget and returns the values received.")
+            .AllowAnonymous();
 }

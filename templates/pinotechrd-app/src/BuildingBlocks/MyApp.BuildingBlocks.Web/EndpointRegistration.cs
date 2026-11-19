@@ -47,6 +47,12 @@ public static class EndpointRegistration
     /// each, endpoints keep the ordinal order of their full type names, so the order of the API document only changes
     /// when the endpoints do. A module added twice is mapped once.
     /// <para>
+    /// The group requires an authenticated user (<c>RequireAuthorization()</c>): every endpoint in it declares its
+    /// access with exactly one of <see cref="Authorization.EndpointAccess.RequirePermission{TBuilder}"/>,
+    /// <see cref="Authorization.EndpointAccess.AuthenticatedOnly{TBuilder}"/> or <c>AllowAnonymous()</c>, and the host
+    /// refuses to start otherwise (see <see cref="Authorization.ApiAuthorizationRegistration.AddApiAuthorization"/>).
+    /// </para>
+    /// <para>
     /// When modules are registered, a module whose route segment equals the first literal segment of a host endpoint's
     /// route (a module <c>Version</c> next to <c>GET /api/v1/version</c>) stops the start with an
     /// <see cref="InvalidOperationException"/> naming the module. To read those routes the host's endpoints are built
@@ -62,7 +68,9 @@ public static class EndpointRegistration
         ArgumentNullException.ThrowIfNull(routes);
 
         var services = routes.ServiceProvider;
+        // Deny by default: every endpoint of the group requires an authenticated user unless it declares otherwise.
         var group = routes.MapGroup(RoutePrefix);
+        group.RequireAuthorization();
         foreach (var endpoint in services.GetServices<IEndpoint>())
         {
             endpoint.MapEndpoint(group);

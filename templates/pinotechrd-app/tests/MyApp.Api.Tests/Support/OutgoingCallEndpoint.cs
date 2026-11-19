@@ -44,5 +44,5 @@ internal sealed class OutgoingCallEndpoint : IEndpoint
             }
 
             return Results.Ok();
-        });
+        }).AllowAnonymous();
 }

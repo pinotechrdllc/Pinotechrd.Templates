@@ -40,7 +40,7 @@ public static class ProblemsRegistration
     /// Adds the exception handler, the status code pages that turn a body-less error status (404, 405, 415 and so
     /// on) into a problem details document, and then routing, so that routing failures (such as an ambiguous match)
     /// are answered too. No other call to <c>UseRouting</c> is needed. The API host does not call it directly:
-    /// <see cref="Security.HttpSecurityRegistration.UseApiPipeline"/> calls it after the middleware that must wrap the
+    /// <see cref="ApiPipeline.UseApiPipeline"/> calls it after the middleware that must wrap the
     /// error responses (forwarded headers, security headers, CORS), which write nothing that an error clears, and
     /// before rate limiting. Anything else must come after it, so its errors are answered as problem details.
     /// </summary>

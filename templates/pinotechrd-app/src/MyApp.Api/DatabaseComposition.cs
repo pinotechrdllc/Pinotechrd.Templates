@@ -1,6 +1,6 @@
-using System.Reflection;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Web;
+using MyApp.BuildingBlocks.Web.OpenApi;
 using MyApp.BuildingBlocks.Web.Telemetry;
 
 namespace MyApp.Api;
@@ -24,8 +24,9 @@ public static class DatabaseComposition
     /// database until a request or the readiness probe needs it.
     /// <para>
     /// The build-time OpenAPI generation (<c>dotnet build -p:UpdateContract=true</c>) runs the entry point and starts the
-    /// host with no server and no configuration, so there the connection string is not validated at start. The
-    /// services are still registered, so the API description sees the same services as the running application.
+    /// host with no server and no configuration (<see cref="ApiDocumentGeneration.IsRunning"/>), so there the connection
+    /// string is not validated at start. The services are still registered, so the API description sees the same services
+    /// as the running application.
     /// </para>
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -34,15 +35,11 @@ public static class DatabaseComposition
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddDatabase(validateOnStart: !IsGeneratingApiDocument());
+        services.AddDatabase(validateOnStart: !ApiDocumentGeneration.IsRunning);
         services.AddHealth()
             .AddCheck<DatabaseHealthCheck>(DatabaseHealthCheck.Name, tags: [HealthRegistration.ReadyTag], timeout: ReadinessTimeout);
         services.AddTelemetrySource(DatabaseRegistration.TelemetryName);
         services.AddTelemetryMeter(DatabaseRegistration.TelemetryName);
         return services;
     }
-
-    // The tool that the build-time generation runs is the entry assembly then; the check Microsoft documents for it.
-    private static bool IsGeneratingApiDocument() =>
-        string.Equals(Assembly.GetEntryAssembly()?.GetName().Name, "GetDocument.Insider", StringComparison.Ordinal);
 }

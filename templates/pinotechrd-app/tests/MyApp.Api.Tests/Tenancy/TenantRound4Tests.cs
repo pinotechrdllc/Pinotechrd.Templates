@@ -23,7 +23,7 @@ internal sealed class TenantFailureEndpoint : IEndpoint
         {
             tenant.Initialize(Guid.Parse("0f8fad5b-d9cb-469f-a165-70867728950e"));
             return Results.Ok(await context.Items.CountAsync(cancellation));
-        });
+        }).AllowAnonymous();
 }
 
 // The failure of a tenant open through the real host: a plain 500, with nothing of the database in the body. Needs Docker.

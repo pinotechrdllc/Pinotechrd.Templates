@@ -185,14 +185,15 @@ public class ProxyNetworkValidationTests
     }
 
     // Breaks when the fallback policy is not applied to API endpoints, which would make the test above prove nothing.
+    // The version endpoint is anonymous now, so the protected fixture stands for an endpoint that needs a user.
     [Fact]
-    public async Task ApiEndpointWithoutAllowAnonymousAnswers401UnderAFallbackPolicy()
+    public async Task ApiEndpointThatRequiresAUserAnswers401UnderAFallbackPolicy()
     {
         using var factory = WithFallbackPolicy();
         using var client = factory.CreateClient();
 
-        using var anonymous = await client.SendAsync(SecurityRequests.Version);
-        using var authenticated = await client.SendAsync(SecurityRequests.Version, user: "alice");
+        using var anonymous = await client.SendAsync(ProblemFixtureEndpoint.Secured);
+        using var authenticated = await client.SendAsync(ProblemFixtureEndpoint.Secured, user: "alice");
 
         await ProblemAssert.IsProblemAsync(anonymous, 401, "unauthorized");
         Assert.Equal(HttpStatusCode.OK, authenticated.StatusCode);

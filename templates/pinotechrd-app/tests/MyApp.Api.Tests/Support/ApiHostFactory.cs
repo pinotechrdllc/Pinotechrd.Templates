@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using MyApp.BuildingBlocks.Application.Security;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 
@@ -14,7 +15,8 @@ namespace MyApp.Api.Tests.Support;
 
 /// <summary>
 /// The real API host with the test-only endpoints of <see cref="ProblemFixtureEndpoint"/> added through the same
-/// <see cref="IEndpoint"/> mechanism the application uses, so requests go through the production pipeline. The
+/// <see cref="IEndpoint"/> mechanism the application uses, so requests go through the production pipeline (the API is
+/// deny by default: the fixture endpoints declare their access and their permission is registered here). The
 /// environment is Development unless the factory is created with <see cref="ForEnvironment"/>. Configuration values
 /// are supplied with <see cref="WithSetting"/> before the first request, and a test sets the remote address of a
 /// request (the in-memory server gives none) with the <see cref="RemoteAddressHeader"/> request header.
@@ -107,6 +109,9 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             // the test project registers its own endpoint types the same way the API does for its own.
             services.AddTestAssemblyValidation();
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
+            // The permission of the fixture endpoint that requires one; a host that starts must know every permission its
+            // endpoints require.
+            services.AddPermissions(ProblemFixtureEndpoint.AdminPermission);
             if (!_realDatabaseCheck)
             {
                 services.Configure<HealthCheckServiceOptions>(options =>

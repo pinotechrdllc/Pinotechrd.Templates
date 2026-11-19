@@ -10,17 +10,17 @@ namespace MyApp.Api.Tests.Support;
 /// <summary>Public endpoint of the registration order test.</summary>
 public sealed class OrderFixtureZuluEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/zulu", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/zulu", () => Results.Ok()).AllowAnonymous();
 }
 
 /// <summary>Public endpoint of the registration order test.</summary>
 public sealed class OrderFixtureAlphaEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/alpha", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/alpha", () => Results.Ok()).AllowAnonymous();
 }
 
 /// <summary>Public endpoint of the registration order test.</summary>
 public sealed class OrderFixtureMikeEndpoint : IEndpoint
 {
-    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/mike", () => Results.Ok());
+    public void MapEndpoint(IEndpointRouteBuilder routes) => routes.MapGet("/order-fixtures/mike", () => Results.Ok()).AllowAnonymous();
 }

@@ -23,6 +23,10 @@ internal sealed class RequestSecrets
         CustomHeader = $"{Marker}-header-{id}";
         QueryToken = $"{Marker}-query-{id}";
         BodyValue = $"{Marker}-body-{id}";
+        EmailClaim = $"{Marker}-email-{id}@example.com";
+        NameClaim = $"{Marker}-name-{id}";
+        TokenClaim = $"{Marker}-claim-token-{id}";
+        RoleClaim = $"{Marker}-role-{id}";
     }
 
     public string Token { get; }
@@ -39,9 +43,39 @@ internal sealed class RequestSecrets
 
     public string BodyValue { get; }
 
+    /// <summary>The value of the email claims of a principal that carries personal data (see <see cref="IdentityValues"/>).</summary>
+    public string EmailClaim { get; }
+
+    /// <summary>The value of the name claims, and the name the test scheme gives the principal.</summary>
+    public string NameClaim { get; }
+
+    /// <summary>The value of a claim that holds a token.</summary>
+    public string TokenClaim { get; }
+
+    /// <summary>The value of a claim that is no identifier (a role).</summary>
+    public string RoleClaim { get; }
+
+    /// <summary>The claim values of a principal that carries personal data: none of them may reach a log event or a span.</summary>
+    public IReadOnlyList<string> IdentityValues => [EmailClaim, NameClaim, TokenClaim, RoleClaim];
+
+    /// <summary>
+    /// The claims header of the test scheme for a principal with valid identifiers (a user and a tenant) and the personal
+    /// claims of <see cref="IdentityValues"/>, some of them under more than one claim type.
+    /// </summary>
+    public string PersonalClaims() =>
+        TestAuthenticationHandler.ClaimsOf(
+            ("sub", Guid.NewGuid().ToString("D")),
+            ("tenant_id", TestAuthenticationHandler.DefaultTenant.ToString("D")),
+            ("email", EmailClaim),
+            (System.Security.Claims.ClaimTypes.Email, EmailClaim),
+            ("name", NameClaim),
+            ("given_name", NameClaim),
+            ("access_token", TokenClaim),
+            ("role", RoleClaim));
+
     /// <summary>Every value that must stay out of the logs and the spans, whole or in the part that identifies it.</summary>
     public IReadOnlyList<string> Values =>
-        [Token, Authorization, SessionCookie, Cookie, CustomHeader, QueryToken, BodyValue, Marker];
+        [Token, Authorization, SessionCookie, Cookie, CustomHeader, QueryToken, BodyValue, .. IdentityValues, Marker];
 
     public static RequestSecrets Create() => new(Guid.NewGuid().ToString("N"));
 
@@ -57,7 +91,7 @@ internal sealed class RequestSecrets
         string? body = null,
         string queryPrefix = "",
         string? user = null,
-        string? roles = null)
+        string? claims = null)
     {
         var request = new HttpRequestMessage(method, $"{path}?{queryPrefix}token={QueryToken}");
         request.Headers.TryAddWithoutValidation("Authorization", Authorization);
@@ -65,7 +99,7 @@ internal sealed class RequestSecrets
         request.Headers.TryAddWithoutValidation(CustomHeaderName, CustomHeader);
         AddIfSet(request, ApiHostFactory.RemoteAddressHeader, remote);
         AddIfSet(request, TestAuthenticationHandler.UserHeader, user);
-        AddIfSet(request, TestAuthenticationHandler.RolesHeader, roles);
+        AddIfSet(request, TestAuthenticationHandler.ClaimsHeader, claims);
         request.Content = new StringContent(body ?? $$"""{"note":"{{BodyValue}}"}""", Encoding.UTF8, new MediaTypeHeaderValue("application/json"));
         return request;
     }
