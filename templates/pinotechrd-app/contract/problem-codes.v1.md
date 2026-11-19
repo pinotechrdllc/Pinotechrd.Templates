@@ -31,3 +31,8 @@ An error is expected, so it never answers 500: that status is reserved for defec
 | `unsupported_media_type` | 415 | The request body has a content type the endpoint does not accept. | `HttpErrorCodes` |
 | `rate_limited` | 429 | The client sent more requests than its rate limit allows; `Retry-After` gives the seconds to wait. | `HttpErrorCodes` |
 | `request_failed` | any other | An error status the pipeline produces without a more specific code (fallback). | `HttpErrorCodes` |
+| `tenant_slug_taken` | 409 | The slug belongs to a tenant with another name or subscription. | `TenantErrorCodes` |
+| `tenant_subscription_not_found` | 404 | The subscription the tenant would belong to does not exist. | `TenantErrorCodes` |
+| `tenant_suspended` | 422 | The tenant is suspended; it is not provisioned until it is activated. | `TenantErrorCodes` |
+| `tenant_cancelled` | 422 | The tenant is cancelled and is never provisioned again. | `TenantErrorCodes` |
+| `tenant_provisioning_failed` | 422 | Creating or migrating the tenant's schema failed; the tenant stays provisioning and a new request resumes it. | `TenantErrorCodes` |
