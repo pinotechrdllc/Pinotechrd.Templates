@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The API tests start many hosts in one process. Each host watches its appsettings files for changes, and on Linux every
+  watcher takes an inotify instance (128 per user by default), so a long run fails with "The configured user limit (128)
+  on the number of inotify instances has been reached". Tests never edit configuration files, so reload is off.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <DOTNET_hostBuilder__reloadConfigOnChange>false</DOTNET_hostBuilder__reloadConfigOnChange>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>
