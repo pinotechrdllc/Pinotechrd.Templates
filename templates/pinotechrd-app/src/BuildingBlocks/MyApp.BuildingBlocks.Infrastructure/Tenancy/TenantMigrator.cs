@@ -30,8 +30,8 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// </para>
 /// <para>
 /// The lock is taken with <c>pg_try_advisory_lock</c>, retried with a growing pause, not with the blocking
-/// <c>pg_advisory_lock</c>: a run that waits gives its connection back to the pool, so runs queued on one tenant never
-/// use up the connections the run holding the lock needs.
+/// <c>pg_advisory_lock</c> (see <see cref="AdvisoryLock"/>): a run that waits gives its connection back to the pool, so
+/// runs queued on one tenant never use up the connections the run holding the lock needs.
 /// </para>
 /// </summary>
 internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
@@ -46,11 +46,6 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     private const string TenantLockPrefix = "tenant-migration:";
     private const string ExtensionsLockKey = "tenant-migration-extensions";
 
-    private const string TryLockSql =
-        "SELECT pg_catalog.set_config('idle_session_timeout', '0', false), pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended($1, 0))";
-
-    private const string UnlockSql = "SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended($1, 0))";
-
     // A bigint advisory key shows in pg_locks as classid (high 32 bits), objid (low 32 bits) and objsubid 1.
     private const string LockHeldSql =
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l, (SELECT pg_catalog.hashtextextended($1, 0) AS k) key "
@@ -62,9 +57,6 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     private const string ExtensionSchemaSql =
         "SELECT n.nspname, e.extrelocatable FROM pg_catalog.pg_extension e "
         + "JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = $1";
-
-    private static readonly TimeSpan FirstPause = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan LongestPause = TimeSpan.FromSeconds(1);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly TenantDataSource _dataSource;
@@ -285,32 +277,8 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
     }
 
     // Returns an open connection that holds the lock. While another run holds it, waits without a connection.
-    private async Task<NpgsqlConnection> LockAsync(string key, CancellationToken cancellationToken)
-    {
-        var pause = FirstPause;
-        while (true)
-        {
-            var connection = await _dataSource.Value.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                await using var command = new NpgsqlCommand(TryLockSql, connection) { Parameters = { new NpgsqlParameter { Value = key } } };
-                await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.GetBoolean(1))
-                {
-                    return connection;
-                }
-            }
-            catch
-            {
-                await connection.DisposeAsync().ConfigureAwait(false);
-                throw;
-            }
-
-            await connection.DisposeAsync().ConfigureAwait(false);
-            await Task.Delay(pause, cancellationToken).ConfigureAwait(false);
-            pause = TimeSpan.FromTicks(Math.Min(pause.Ticks * 2, LongestPause.Ticks));
-        }
-    }
+    private Task<NpgsqlConnection> LockAsync(string key, CancellationToken cancellationToken) =>
+        AdvisoryLock.AcquireAsync(_dataSource.Value, key, cancellationToken);
 
     // A session that ended took its lock with it; the run must not go on without it.
     private static async Task EnsureLockHeldAsync(NpgsqlConnection lockConnection, string key, CancellationToken cancellationToken)
@@ -349,35 +317,22 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
         return true;
     }
 
-    // Not cancellable: the lock is released even when the run was cancelled. A broken connection already lost the lock
-    // with its session, so that failure must not hide the run's own outcome.
-    private static async Task UnlockAsync(NpgsqlConnection connection, string key)
-    {
-        try
-        {
-            await using var command = new NpgsqlCommand(UnlockSql, connection) { Parameters = { new NpgsqlParameter { Value = key } } };
-            await command.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (NpgsqlException)
-        {
-            // The session, and its lock, ended with the connection.
-        }
-        catch (InvalidOperationException)
-        {
-            // The connection is no longer open: same as above.
-        }
-    }
+    // Not cancellable: the lock is released even when the run was cancelled (see AdvisoryLock.ReleaseAsync).
+    private static Task UnlockAsync(NpgsqlConnection connection, string key) => AdvisoryLock.ReleaseAsync(connection, key);
 
     private static IModel ModelOf(DbContext context) => context.GetService<IDesignTimeModel>().Model;
 
     // The schema of a tenant context comes from search_path only. A schema anywhere in the model (default schema,
     // tables, split tables, views, functions, procedures, sequences) would send every tenant to that one schema. An
     // extension may name only the shared extensions schema. Raw SQL in a migration (migrationBuilder.Sql) cannot be checked.
+    // A table excluded from migrations (ExcludeFromMigrations) is skipped: the context reads it but never creates it, as
+    // the Access context does with the shared catalog tables, which the catalog's own context migrates (ADR 0010). No
+    // migrated table may hold a foreign key to such a table, or to any table that names a schema.
     private static void EnsureNoSchemaInModel(DbContext context, string moduleName)
     {
         var model = ModelOf(context);
         var relational = model.GetRelationalModel();
-        var schemas = relational.Tables.Select(t => t.Schema)
+        var schemas = relational.Tables.Where(t => !t.IsExcludedFromMigrations).Select(t => t.Schema)
             .Concat(relational.Views.Select(v => v.Schema))
             .Concat(relational.Functions.Select(f => f.Schema))
             .Concat(relational.StoredProcedures.Select(p => p.Schema))
@@ -391,6 +346,19 @@ internal sealed partial class TenantMigrator : ITenantMigrator, IDisposable
             throw new InvalidOperationException(
                 $"The context of the module '{moduleName}' ({context.GetType().FullName}) names a schema in its model. A tenant "
                 + "context names none: the tenant's schema is selected per connection by search_path.");
+        }
+
+        // A foreign key from a migrated table to an excluded table, or to a table in a schema, would tie every tenant's
+        // rows to another owner's table (the catalog, or another tenant's schema).
+        var foreignKey = relational.Tables.Where(t => !t.IsExcludedFromMigrations)
+            .SelectMany(t => t.ForeignKeyConstraints)
+            .FirstOrDefault(k => k.PrincipalTable.Schema is not null || k.PrincipalTable.IsExcludedFromMigrations);
+        if (foreignKey is not null)
+        {
+            throw new InvalidOperationException(
+                $"The context of the module '{moduleName}' ({context.GetType().FullName}) has the foreign key '{foreignKey.Name}' "
+                + $"from the tenant table '{foreignKey.Table.Name}' to '{foreignKey.PrincipalTable.Name}', a table outside the "
+                + "tenant's migrations. A tenant table references only tables of its own schema; match others by value.");
         }
 
         var misplaced = model.GetPostgresExtensions()

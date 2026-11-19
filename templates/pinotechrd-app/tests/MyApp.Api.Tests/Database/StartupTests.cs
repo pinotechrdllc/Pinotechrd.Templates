@@ -3,6 +3,10 @@ using System.Net;
 using MyApp.Api.Tests.Support;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Infrastructure.Database;
+using MyApp.BuildingBlocks.Infrastructure.Migrations;
+using MyApp.BuildingBlocks.Infrastructure.Tenancy;
+using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace MyApp.Api.Tests.Database;
 
@@ -101,5 +105,42 @@ public class StartupTests
         using var response = await client.GetAsync(SecurityRequests.Version, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+
+// The API never migrates: the migrator is a separate command. Needs Docker (the shared PostgreSQL container).
+[Collection(PostgresContainer.Name)]
+public class ApiDoesNotMigrateTests(PostgresFixture postgres)
+{
+    // Breaks when starting the API (and answering its readiness probe) creates the catalog schema, a tenant schema or any
+    // table, or when the API registers a database migrator or a tenant migrator that something could resolve.
+    [Fact]
+    public async Task ApiStartedOnAFreshDatabaseCreatesNoSchemaAndRegistersNoMigrator()
+    {
+        var connectionString = await postgres.CreateDatabaseAsync();
+        using var factory = new ApiHostFactory().WithDatabase(connectionString);
+        using var client = factory.CreateClient();
+
+        using var ready = await client.GetAsync(HealthRegistration.ReadyPath, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+        Assert.Null(factory.Services.GetService<IDatabaseMigrator>());
+        Assert.Null(factory.Services.GetService<ITenantMigrator>());
+        await using var scope = factory.Services.CreateAsyncScope();
+        Assert.Null(scope.ServiceProvider.GetService<IDatabaseMigrator>());
+        Assert.Null(scope.ServiceProvider.GetService<ITenantMigrator>());
+
+        await using var connection = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(connectionString) { Pooling = false }.ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var schemas = new NpgsqlCommand(
+            "SELECT nspname FROM pg_namespace WHERE nspname = 'catalog' OR left(nspname, 7) = 'tenant_' OR nspname = 'extensions'", connection);
+        await using (var reader = await schemas.ExecuteReaderAsync(TestContext.Current.CancellationToken))
+        {
+            Assert.False(await reader.ReadAsync(TestContext.Current.CancellationToken), "The API created a schema.");
+        }
+
+        await using var tables = new NpgsqlCommand(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema')", connection);
+        Assert.Equal(0L, (long)(await tables.ExecuteScalarAsync(TestContext.Current.CancellationToken))!);
     }
 }

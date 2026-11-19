@@ -16,6 +16,7 @@
     <Project Path="src/MyApp.Infrastructure/MyApp.Infrastructure.csproj" />
 <!--#endif -->
     <Project Path="src/MyApp.Api/MyApp.Api.csproj" />
+    <Project Path="src/MyApp.Migrator/MyApp.Migrator.csproj" />
   </Folder>
   <Folder Name="/src/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Domain/MyApp.BuildingBlocks.Domain.csproj" />
@@ -42,6 +43,7 @@
 <!--#endif -->
   <Folder Name="/tests/">
     <Project Path="tests/MyApp.BuildingBlocks.Tests/MyApp.BuildingBlocks.Tests.csproj" />
+    <Project Path="tests/MyApp.Migrator.Tests/MyApp.Migrator.Tests.csproj" />
 <!--#if (modular) -->
     <Project Path="tests/MyApp.Modules.MyModule.Tests/MyApp.Modules.MyModule.Tests.csproj" />
 <!--#else -->

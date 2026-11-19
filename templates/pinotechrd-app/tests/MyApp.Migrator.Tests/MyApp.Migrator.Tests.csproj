@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="xunit.v3.mtp-off" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- The same PostgreSQL container fixture as the API tests: one container for the run, a database per test. -->
+  <ItemGroup>
+    <Compile Include="..\MyApp.Api.Tests\Database\PostgresFixture.cs" Link="Support\PostgresFixture.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MyApp.Migrator\MyApp.Migrator.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Access\MyApp.Modules.Access.Infrastructure\MyApp.Modules.Access.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

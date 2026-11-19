@@ -62,6 +62,10 @@ $sharedPaths = @(
     'contract',
     "tests/$projectName.BuildingBlocks.Tests",
     "tests/$projectName.Api.Tests",
+    # The migrator command, its tests and the pinned dotnet-ef tool, in both architectures.
+    "src/$projectName.Migrator/$projectName.Migrator.csproj",
+    "tests/$projectName.Migrator.Tests",
+    '.config/dotnet-tools.json',
     # The Access module is part of both architectures.
     "src/Modules/Access/$projectName.Modules.Access.Contracts/$projectName.Modules.Access.Contracts.csproj",
     "src/Modules/Access/$projectName.Modules.Access.Domain/$projectName.Modules.Access.Domain.csproj",

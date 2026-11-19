@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application;
 using MyApp.BuildingBlocks.Application.Security;
-using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Web.Authorization;
 using MyApp.Modules.Access.Application;
@@ -50,8 +49,7 @@ public sealed class AccessModule : IModule
         var services = context.Services;
         AddSecurity(context);
 
-        services.AddScoped<ISchemaProvider, AccessSchemaProvider>();
-        services.AddTenantDbContext<AccessDbContext>(Name, static (_, options) => AccessDbContext.ConfigureModel(options));
+        services.AddAccessPersistence();
         services.AddScoped<ISecurityDataProvider, AccessSecurityDataProvider>();
         services.AddScoped<IIdentityValidator<AccessUser>, AccessIdentityValidator>();
         services.AddPermissionChecker<SecurityEnginePermissionChecker>(Name);

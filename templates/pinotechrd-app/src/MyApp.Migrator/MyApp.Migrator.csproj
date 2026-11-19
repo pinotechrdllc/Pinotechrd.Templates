@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The migrator command: migrates the shared catalog, then every tenant, and exits. A deploy step of its own, never
+       part of the API: it references no web building block and no endpoints project. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- For dotnet ef: this project is the startup project of the migrations commands (see README.md). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Access\MyApp.Modules.Access.Infrastructure\MyApp.Modules.Access.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
