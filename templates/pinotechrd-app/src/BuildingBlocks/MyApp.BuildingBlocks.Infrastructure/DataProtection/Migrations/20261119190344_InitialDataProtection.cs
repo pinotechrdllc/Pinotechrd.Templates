@@ -22,7 +22,9 @@ namespace MyApp.BuildingBlocks.Infrastructure.DataProtection.Migrations
                     id = table.Column<int>(type: "integer", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityAlwaysColumn),
                     friendly_name = table.Column<string>(type: "text", nullable: true),
-                    xml = table.Column<string>(type: "text", nullable: false)
+                    xml = table.Column<string>(type: "text", nullable: false),
+                    signature = table.Column<byte[]>(type: "bytea", nullable: true),
+                    signer = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {

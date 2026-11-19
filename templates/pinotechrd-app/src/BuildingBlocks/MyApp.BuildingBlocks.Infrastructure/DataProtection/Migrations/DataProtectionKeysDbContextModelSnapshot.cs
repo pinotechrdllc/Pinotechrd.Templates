@@ -35,6 +35,14 @@ namespace MyApp.BuildingBlocks.Infrastructure.DataProtection.Migrations
                         .HasColumnType("text")
                         .HasColumnName("friendly_name");
 
+                    b.Property<byte[]>("Signature")
+                        .HasColumnType("bytea")
+                        .HasColumnName("signature");
+
+                    b.Property<string>("Signer")
+                        .HasColumnType("text")
+                        .HasColumnName("signer");
+
                     b.Property<string>("Xml")
                         .IsRequired()
                         .HasColumnType("text")

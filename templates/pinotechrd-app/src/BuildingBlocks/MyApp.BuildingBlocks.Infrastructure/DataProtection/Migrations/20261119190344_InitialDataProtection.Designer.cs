@@ -11,7 +11,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MyApp.BuildingBlocks.Infrastructure.DataProtection.Migrations
 {
     [DbContext(typeof(DataProtectionKeysDbContext))]
-    [Migration("20261119184302_InitialDataProtection")]
+    [Migration("20261119190344_InitialDataProtection")]
     partial class InitialDataProtection
     {
         /// <inheritdoc />
@@ -37,6 +37,14 @@ namespace MyApp.BuildingBlocks.Infrastructure.DataProtection.Migrations
                     b.Property<string>("FriendlyName")
                         .HasColumnType("text")
                         .HasColumnName("friendly_name");
+
+                    b.Property<byte[]>("Signature")
+                        .HasColumnType("bytea")
+                        .HasColumnName("signature");
+
+                    b.Property<string>("Signer")
+                        .HasColumnType("text")
+                        .HasColumnName("signer");
 
                     b.Property<string>("Xml")
                         .IsRequired()

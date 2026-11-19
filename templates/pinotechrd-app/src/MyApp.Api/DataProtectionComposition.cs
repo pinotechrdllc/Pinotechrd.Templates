@@ -25,6 +25,8 @@ namespace MyApp.Api;
 /// encryption is the platform's (<see cref="CertificateXmlEncryptor"/>); the decryption looks for the certificate among
 /// those settings only, never in a machine's certificate store, through <see cref="CertificateKeyDecryptor"/>, whose type
 /// name each encrypted key records: keep that type where it is.</item>
+/// <item>Integrity: with a certificate, every row is signed with its private key and only rows signed by a configured
+/// certificate are read (see <see cref="DatabaseXmlRepository"/>), so a row inserted without the private key is ignored.</item>
 /// <item>Outside Development the certificate is required, with an RSA key of at least
 /// <see cref="DataProtectionKeyOptions.MinimumKeySize"/> bits, and checked at start: without a valid one the API does not
 /// start, and the error names the setting, never a path. In Development it is optional: without it keys are stored

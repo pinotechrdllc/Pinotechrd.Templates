@@ -14,4 +14,15 @@ public sealed class DataProtectionKey
 
     /// <summary>Gets or sets the element's XML.</summary>
     public string Xml { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the signature of the friendly name and the XML by the private key of the certificate that stored the
+    /// row; <see langword="null"/> when no certificate was configured (Development only).
+    /// </summary>
+#pragma warning disable CA1819 // An EF-mapped bytea column.
+    public byte[]? Signature { get; set; }
+#pragma warning restore CA1819
+
+    /// <summary>Gets or sets the SHA-256 thumbprint of the certificate that signed the row, or <see langword="null"/>.</summary>
+    public string? Signer { get; set; }
 }

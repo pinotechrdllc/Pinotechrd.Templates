@@ -64,7 +64,7 @@ public class DataProtectionKeysAsApplicationLoginTests(PostgresFixture postgres)
         Assert.Contains("keys", tables);
         Assert.Contains("__ef_migrations_data_protection", tables);
         Assert.Equal(
-            ["friendly_name", "id", "xml"],
+            ["friendly_name", "id", "signature", "signer", "xml"],
             await Db.ColumnAsync(
                 database,
                 $"SELECT column_name FROM information_schema.columns WHERE table_schema = '{Schema}' AND table_name = 'keys' ORDER BY column_name"));
