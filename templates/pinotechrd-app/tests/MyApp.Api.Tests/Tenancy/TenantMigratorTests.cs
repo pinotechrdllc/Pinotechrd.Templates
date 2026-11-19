@@ -103,7 +103,7 @@ public class TenantMigratorTests(PostgresFixture postgres)
     {
         await using var rig = await TenantRig.StartAsync(postgres);
         var tenant = Guid.NewGuid();
-        await rig.ExecuteAsync($"CREATE SCHEMA \"{TenantSchemaName.For(tenant)}\"");
+        await rig.CreateTenantSchemaAsync(tenant, allowDdl: true);
         await using (var scope = rig.ScopeFor(tenant))
         {
             var access = scope.ServiceProvider.GetRequiredService<AccessContext>();

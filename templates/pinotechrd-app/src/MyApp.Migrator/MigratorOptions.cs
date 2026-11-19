@@ -11,4 +11,10 @@ public sealed class MigratorOptions
     /// each tenant in progress holds two connections.
     /// </summary>
     public int MaxDegreeOfParallelism { get; set; } = DefaultMaxDegreeOfParallelism;
+
+    /// <summary>
+    /// Gets or sets the login the API connects with, when it is not the migrator's own: it becomes a member of every
+    /// tenant's database role (ADR 0012). Empty when the API and the migrator share one login.
+    /// </summary>
+    public string? ApplicationRole { get; set; }
 }

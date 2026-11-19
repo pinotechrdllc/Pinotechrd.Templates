@@ -110,12 +110,13 @@ public class TenantRefusalTests(PostgresFixture postgres)
         Assert.True(await TelemetryUntilAsync(() => rig.CommandsSent > before), "The command counter did not see the control command.");
     }
 
-    // Breaks when a valid name that is not a tenant's (here a pre-existing schema) is refused: the check is the pattern,
-    // not an allow-list of tenant_ names, but the tenant schema is what the production tenant gives.
+    // Breaks when a tenant implementation other than the production one is refused although its schema is the one made from
+    // its tenant id: any ICurrentTenant is accepted when schema and role follow from its id (the role is the tenant's own).
     [Fact]
-    public async Task AValidSchemaNameIsAccepted()
+    public async Task AnImplementationWhoseSchemaFollowsFromItsTenantIdIsAccepted()
     {
-        var holder = new SchemaHolder { Schema = "claimed_valid_schema" };
+        var tenant = Guid.NewGuid();
+        var holder = new SchemaHolder { TenantId = tenant, Schema = TenantSchemaName.For(tenant) };
         await using var rig = await TenantRig.StartAsync(
             postgres,
             maxPoolSize: 2,
@@ -125,13 +126,13 @@ public class TenantRefusalTests(PostgresFixture postgres)
                 services.AddScoped<ICurrentTenant, ClaimedTenant>();
                 services.AddTenantDbContext<AccessContext>("Access");
             });
-        await rig.ExecuteAsync("CREATE SCHEMA claimed_valid_schema");
+        await rig.CreateTenantSchemaAsync(tenant);
         await using var scope = rig.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<AccessContext>();
 
         var schema = await context.Database.SqlQueryRaw<string>("SELECT current_schema() AS \"Value\"").SingleAsync(Token);
 
-        Assert.Equal("claimed_valid_schema", schema);
+        Assert.Equal(TenantSchemaName.For(tenant), schema);
     }
 
     private static async Task<bool> TelemetryUntilAsync(Func<bool> condition)

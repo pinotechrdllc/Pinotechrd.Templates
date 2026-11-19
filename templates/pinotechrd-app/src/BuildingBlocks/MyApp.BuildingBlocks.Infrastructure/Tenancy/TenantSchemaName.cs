@@ -58,9 +58,10 @@ public static partial class TenantSchemaName
 
     /// <summary>
     /// The <c>search_path</c> of a tenant connection: the tenant's schema, then <see cref="ExtensionsSchema"/>, both quoted,
-    /// after <see cref="Validate"/>. Never <c>public</c>.
+    /// after <see cref="Validate"/>, then <c>pg_temp</c> named last, so a temporary table never shadows a tenant table
+    /// (unnamed, PostgreSQL searches the session's temporary schema first). Never <c>public</c>.
     /// </summary>
-    internal static string SearchPathFor(string schemaName) => Quoted(schemaName) + ", " + Quoted(ExtensionsSchema);
+    internal static string SearchPathFor(string schemaName) => Quoted(schemaName) + ", " + Quoted(ExtensionsSchema) + ", pg_temp";
 
     /// <summary>The schema name as a quoted SQL identifier, after <see cref="Validate"/>.</summary>
     internal static string Quoted(string schemaName) => "\"" + Validate(schemaName) + "\"";

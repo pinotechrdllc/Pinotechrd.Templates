@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application.Tenancy;
 using Npgsql;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
@@ -28,6 +29,10 @@ public static class TenantDbContextOptionsExtensions
     /// <param name="npgsqlOptions">
     /// Further Npgsql options, applied before the history table, which they cannot change. Never give a schema.
     /// </param>
+    /// <param name="allowPrivilegedLogin">
+    /// Whether the guard accepts a superuser or <c>BYPASSRLS</c> login (<see cref="TenancyOptions.AllowPrivilegedLogin"/>);
+    /// <see langword="false"/> by default.
+    /// </param>
     /// <returns>The same options builder, for chaining.</returns>
     /// <exception cref="ArgumentException">The module name is not valid.</exception>
     /// <exception cref="InvalidOperationException">The data source sets a refused setting.</exception>
@@ -36,19 +41,20 @@ public static class TenantDbContextOptionsExtensions
         NpgsqlDataSource dataSource,
         ICurrentTenant currentTenant,
         string moduleName,
-        Action<NpgsqlDbContextOptionsBuilder>? npgsqlOptions = null)
+        Action<NpgsqlDbContextOptionsBuilder>? npgsqlOptions = null,
+        bool allowPrivilegedLogin = false)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(currentTenant);
         var historyTable = TenantPersistenceRegistration.HistoryTableOf(moduleName);
 
         ConfigureProvider(options, TenantDataSource.Check(dataSource), historyTable, npgsqlOptions);
-        return options.AddInterceptors(new TenantConnectionGuard(currentTenant, historyTable));
+        return options.AddInterceptors(new TenantConnectionGuard(currentTenant, historyTable, allowPrivilegedLogin));
     }
 
     /// <summary>
-    /// The same, with the data source and the current tenant taken from <paramref name="scopedServices"/>, the services of
-    /// the scope the context lives in.
+    /// The same, with the data source, the current tenant and <see cref="TenancyOptions"/> (when registered) taken from
+    /// <paramref name="scopedServices"/>, the services of the scope the context lives in.
     /// </summary>
     /// <param name="options">The options builder of the context.</param>
     /// <param name="scopedServices">The services of the context's scope.</param>
@@ -67,7 +73,8 @@ public static class TenantDbContextOptionsExtensions
             scopedServices.GetRequiredService<NpgsqlDataSource>(),
             scopedServices.GetRequiredService<ICurrentTenant>(),
             moduleName,
-            npgsqlOptions);
+            npgsqlOptions,
+            scopedServices.GetService<IOptions<TenancyOptions>>()?.Value.AllowPrivilegedLogin ?? false);
     }
 
     /// <summary>

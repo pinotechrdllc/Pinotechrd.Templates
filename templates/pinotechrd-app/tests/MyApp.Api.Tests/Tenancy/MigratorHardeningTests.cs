@@ -104,6 +104,7 @@ public class MigratorExtensionsTests(PostgresFixture postgres)
         await rig.ExecuteAsync(
             "CREATE SCHEMA IF NOT EXISTS extensions; CREATE TABLE extensions.shadow_probe (origin text); "
             + "INSERT INTO extensions.shadow_probe VALUES ('extensions'); "
+            + $"GRANT SELECT ON extensions.shadow_probe TO \"{rig.SharedRole}\"; "
             + $"CREATE TABLE \"{TenantSchemaName.For(withOwn)}\".shadow_probe (origin text); "
             + $"INSERT INTO \"{TenantSchemaName.For(withOwn)}\".shadow_probe VALUES ('tenant')");
 

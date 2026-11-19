@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using MyApp.Api.Tests.Support;
+using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Api.Tests.Database;
 using Npgsql;
 
@@ -43,7 +45,7 @@ internal sealed class DedicatedLogin : IAsyncDisposable
         connection.Password = Password;
         connection.MaxPoolSize = maxPoolSize;
         return TenantRig.StartOn(
-            connection.ConnectionString, new NpgsqlDataSourceBuilder(connection.ConnectionString).Build(), ownsDataSource: true, register);
+            connection.ConnectionString, new NpgsqlDataSourceBuilder(connection.ConnectionString).Build(), ownsDataSource: true, register, allowPrivilegedLogin: false);
     }
 
     public async ValueTask DisposeAsync()
@@ -53,6 +55,8 @@ internal sealed class DedicatedLogin : IAsyncDisposable
             await AdminAsync($"DROP DATABASE IF EXISTS \"{database}\" WITH (FORCE)");
         }
 
+        // Memberships this login granted (as the creator of tenant roles) depend on it until its objects and grants are dropped.
+        await AdminAsync($"DROP OWNED BY {Name}");
         await AdminAsync($"DROP ROLE IF EXISTS {Name}");
     }
 
@@ -66,6 +70,34 @@ internal sealed class DedicatedLogin : IAsyncDisposable
         await using var command = new NpgsqlCommand(sql, connection);
 #pragma warning restore CA2100
         await command.ExecuteNonQueryAsync(CancellationToken.None);
+    }
+}
+
+/// <summary>
+/// The SQL that gives a hand-made tenant schema what the migrator gives it, for tests that do not run the migrator: the
+/// tenant's NOLOGIN role (usage on the schema, data changes on its tables now and later), and the shared role that reads
+/// the shared schemas that exist. Written for a superuser session (the fixture's user), which owns what it creates.
+/// </summary>
+internal static class TenantRoleSql
+{
+    public static string For(string connectionString, Guid tenantId, bool allowDdl = false)
+    {
+        var schema = "\"" + TenantSchemaName.For(tenantId) + "\"";
+        var role = "\"" + TenantRoles.For(connectionString, tenantId) + "\"";
+        var shared = "\"" + TenantRoles.SharedOf(connectionString) + "\"";
+        return
+            $"DO $$ BEGIN CREATE ROLE {shared} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$; "
+            + $"DO $$ BEGIN CREATE ROLE {role} NOLOGIN; EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$; "
+            + $"GRANT {shared} TO {role}; "
+            + $"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'extensions') THEN GRANT USAGE ON SCHEMA extensions TO {shared}; END IF; "
+            + $"IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'catalog') THEN GRANT USAGE ON SCHEMA catalog TO {shared}; "
+            + $"GRANT SELECT ON ALL TABLES IN SCHEMA catalog TO {shared}; END IF; END $$; "
+            + $"GRANT USAGE ON SCHEMA {schema} TO {role}; "
+            + (allowDdl ? $"GRANT CREATE ON SCHEMA {schema} TO {role}; " : string.Empty)
+            + $"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}; "
+            + $"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE, SELECT ON SEQUENCES TO {role}; "
+            + $"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {role}; "
+            + $"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}";
     }
 }
 

@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyApp.Api.Tests.Database;
+using MyApp.Api.Tests.Support;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using Npgsql;
 
@@ -20,10 +20,18 @@ internal sealed class TenantRig : IAsyncDisposable
     private readonly CommandCounter _commands;
 
     private readonly bool _ownsDataSource;
+    private readonly Action<IServiceCollection> _register;
 
     private TenantRig(
-        NpgsqlDataSource dataSource, ServiceProvider services, string database, string adminConnectionString, CommandCounter commands, bool ownsDataSource)
+        NpgsqlDataSource dataSource,
+        ServiceProvider services,
+        string database,
+        string adminConnectionString,
+        CommandCounter commands,
+        bool ownsDataSource,
+        Action<IServiceCollection> register)
     {
+        _register = register;
         _ownsDataSource = ownsDataSource;
         DataSource = dataSource;
         Services = services;
@@ -39,6 +47,12 @@ internal sealed class TenantRig : IAsyncDisposable
     public string Database { get; }
 
     public string AdminConnectionString => _adminConnectionString;
+
+    /// <summary>The database role of <paramref name="tenantId"/> in the rig's database (its name carries the database's oid).</summary>
+    public string RoleOf(Guid tenantId) => TenantRoles.For(_adminConnectionString, tenantId);
+
+    /// <summary>The shared role of the rig's database.</summary>
+    public string SharedRole => TenantRoles.SharedOf(_adminConnectionString);
 
     /// <summary>The connection string of the rig's database as pooled connections use it.</summary>
     public string ConnectionString => DataSource.ConnectionString;
@@ -60,30 +74,39 @@ internal sealed class TenantRig : IAsyncDisposable
         int maxPoolSize = 8,
         Action<IServiceCollection>? register = null,
         bool validateScopes = true,
-        Action<NpgsqlConnectionStringBuilder>? tune = null)
+        Action<NpgsqlConnectionStringBuilder>? tune = null,
+        bool allowPrivilegedLogin = true)
     {
         var connection = new NpgsqlConnectionStringBuilder(await postgres.CreateDatabaseAsync()) { MaxPoolSize = maxPoolSize };
         tune?.Invoke(connection);
-        return StartOn(connection.ConnectionString, new NpgsqlDataSourceBuilder(connection.ConnectionString).Build(), ownsDataSource: true, register, validateScopes);
+        return StartOn(connection.ConnectionString, new NpgsqlDataSourceBuilder(connection.ConnectionString).Build(), ownsDataSource: true, register, validateScopes, allowPrivilegedLogin);
     }
 
     /// <summary>A rig on a database and a data source that already exist (a second migrator on one database, or the host's own data source).</summary>
     public static TenantRig StartOn(
-        string connectionString, NpgsqlDataSource dataSource, bool ownsDataSource, Action<IServiceCollection>? register = null, bool validateScopes = true)
+        string connectionString, NpgsqlDataSource dataSource, bool ownsDataSource, Action<IServiceCollection>? register = null, bool validateScopes = true, bool allowPrivilegedLogin = true)
     {
         var connection = new NpgsqlConnectionStringBuilder(connectionString);
         var admin = new NpgsqlConnectionStringBuilder(connectionString) { Pooling = false };
         var commands = new CommandCounter(connection.Database!);
         var services = new ServiceCollection();
         services.AddSingleton(dataSource);
-        (register ?? StandardModules)(services);
+        register ??= StandardModules;
+        register(services);
+        if (allowPrivilegedLogin)
+        {
+            // The fixture's login is a superuser: the guard refuses it unless the option says so (a restricted login is the default).
+            services.Configure<TenancyOptions>(o => o.AllowPrivilegedLogin = true);
+        }
+
         return new TenantRig(
             dataSource,
             services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = validateScopes }),
             connection.Database!,
             admin.ConnectionString,
             commands,
-            ownsDataSource);
+            ownsDataSource,
+            register);
     }
 
     public async ValueTask DisposeAsync()
@@ -106,17 +129,32 @@ internal sealed class TenantRig : IAsyncDisposable
     }
 
     /// <summary>
-    /// Creates the tenant's schema and applies every module's migrations without the migrator (plain SQL and each
-    /// context's own migrate), so a test of the contexts does not depend on the migrator.
+    /// Creates the tenant's schema and its role, and applies every module's migrations, through a migrator of its own over
+    /// the rig's database (the rig's registrations, a pool of four, the administrative login): the tenant's connections cannot
+    /// create tables (the tenant role has no CREATE), so the schema is made by the migrator's login as in a deployment, and a
+    /// rig whose pool is as small as one connection can still provision.
     /// </summary>
     public async Task ProvisionAsync(Guid tenantId)
     {
+        var connection = new NpgsqlConnectionStringBuilder(_adminConnectionString) { Pooling = true, MaxPoolSize = 4 };
+        await using var provisioner = StartOn(
+            connection.ConnectionString, new NpgsqlDataSourceBuilder(connection.ConnectionString).Build(), ownsDataSource: true, _register);
+        var migrator = provisioner.Services.GetService<ITenantMigrator>()
+            ?? throw new InvalidOperationException("The rig has no migrator: register it with AddTenantMigrator().");
+        var result = await migrator.MigrateAsync(tenantId, TestContext.Current.CancellationToken);
+        Assert.True(result.Succeeded, result.Error?.ToString());
+    }
+
+    /// <summary>
+    /// Creates only the tenant's schema by hand, with the tenant's role and the grants the migrator would give it (usage
+    /// on the schema, data changes on its tables now and later, read of the shared objects), so a test of a connection
+    /// does not depend on the migrator. <paramref name="allowDdl"/> also lets the role create objects in the schema, for a
+    /// test that migrates through a tenant connection.
+    /// </summary>
+    public async Task CreateTenantSchemaAsync(Guid tenantId, bool allowDdl = false)
+    {
         await ExecuteAsync($"CREATE SCHEMA \"{TenantSchemaName.For(tenantId)}\"");
-        await using var scope = ScopeFor(tenantId);
-        foreach (var module in scope.ServiceProvider.GetServices<IModuleMigrations>())
-        {
-            await module.GetContext(scope.ServiceProvider).Database.MigrateAsync(TestContext.Current.CancellationToken);
-        }
+        await ExecuteAsync(TenantRoleSql.For(_adminConnectionString, tenantId, allowDdl));
     }
 
     public async Task<NpgsqlConnection> OpenAdminAsync()

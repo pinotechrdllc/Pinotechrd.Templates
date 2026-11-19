@@ -30,11 +30,9 @@ public class RoleAndExtensionTests(PostgresFixture postgres)
         services.AddTenantMigrator();
     }
 
-    private static async Task GrantTenantAsync(TenantRig admin, string role, Guid tenant)
-    {
-        var schema = TenantSchemaName.For(tenant);
-        await admin.ExecuteAsync($"GRANT USAGE ON SCHEMA \"{schema}\" TO {role}; GRANT ALL ON ALL TABLES IN SCHEMA \"{schema}\" TO {role}");
-    }
+    // What the migrator does for its application role: the login may become the tenant's role (and only that, never inherit it).
+    private static Task MakeMemberAsync(TenantRig admin, string login, Guid tenant) =>
+        admin.ExecuteAsync($"GRANT \"{admin.RoleOf(tenant)}\" TO {login} WITH INHERIT FALSE, SET TRUE");
 
     private static TenantRig AsSuperuser(PostgresFixture postgres, TenantRig first, Action<IServiceCollection> register)
     {
@@ -54,8 +52,8 @@ public class RoleAndExtensionTests(PostgresFixture postgres)
         login.Drops(admin.Database);
         var first = Guid.NewGuid();
         await admin.ProvisionAsync(first);
-        await GrantTenantAsync(admin, login.Name, first);
-        await admin.ExecuteAsync("CREATE SCHEMA extensions");
+        await MakeMemberAsync(admin, login.Name, first);
+        await admin.ExecuteAsync($"CREATE SCHEMA IF NOT EXISTS extensions; REVOKE USAGE ON SCHEMA extensions FROM \"{admin.SharedRole}\"");
         await using (var asRole = login.RigOn(admin.Database, AccessModule, maxPoolSize: 3))
         {
             await using var scope = asRole.ScopeFor(first);
@@ -76,7 +74,6 @@ public class RoleAndExtensionTests(PostgresFixture postgres)
         var second = Guid.NewGuid();
         var result = await migrator.Services.GetRequiredService<ITenantMigrator>().MigrateAsync(second, Token);
         Assert.True(result.Succeeded, result.Error?.ToString());
-        await GrantTenantAsync(admin, login.Name, second);
 
         await using var granted = login.RigOn(admin.Database, services =>
         {
@@ -103,7 +100,7 @@ public class RoleAndExtensionTests(PostgresFixture postgres)
         var tenant = Guid.NewGuid();
         await admin.ExecuteAsync(
             "CREATE SCHEMA extensions; CREATE EXTENSION citext SCHEMA extensions; CREATE EXTENSION \"uuid-ossp\" SCHEMA extensions; "
-            + $"GRANT USAGE ON SCHEMA extensions TO {login.Name}; REVOKE CREATE ON DATABASE \"{admin.Database}\" FROM PUBLIC; "
+            + $"ALTER SCHEMA extensions OWNER TO {login.Name}; ALTER ROLE {login.Name} CREATEROLE; REVOKE CREATE ON DATABASE \"{admin.Database}\" FROM PUBLIC; "
             + $"REVOKE CREATE ON DATABASE \"{admin.Database}\" FROM {login.Name}; CREATE SCHEMA \"{TenantSchemaName.For(tenant)}\" AUTHORIZATION {login.Name}");
         await using var asRole = login.RigOn(admin.Database, DocsModule, maxPoolSize: 5);
 

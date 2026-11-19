@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using MyApp.Api.Tests.Database;
+using MyApp.Api.Tests.Tenancy;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Modules.Access.Infrastructure.Persistence;
 using Npgsql;
@@ -47,6 +48,12 @@ internal static class AccessDatabase
             await RunAsync(connection, ScriptOf<AccessDbContext>(excludeCatalog: true));
         }
 
+        // What the migrator gives each tenant: its role, with the grants of the tenant's tables and of the shared schemas.
+        foreach (var tenant in tenants)
+        {
+            await RunAsync(connection, TenantRoleSql.For(connectionString, tenant));
+        }
+
         return connectionString;
     }
 
@@ -72,6 +79,11 @@ internal static class AccessDatabase
     public static async Task SeedPlanAsync(IServiceProvider services, params Guid[] tenants)
     {
         var plan = SubscriptionPlan.Create("Plan", "PLAN-" + Guid.NewGuid().ToString("N")[..8], null, null);
+        // Tenant roles only read the shared catalog (that is what the tests prove elsewhere): the catalog is filled with
+        // the write right lent to the shared role for the length of the seeding, as an operator's own tooling would.
+        var dataSource = services.GetRequiredService<NpgsqlDataSource>();
+        var sharedRole = TenantRoles.SharedOf(dataSource.ConnectionString);
+        await RunOnAsync(dataSource, $"GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA \"{AccessDbContext.CatalogSchema}\" TO \"{sharedRole}\"");
         await InTenantAsync(services, tenants[0], async scope =>
         {
             var db = scope.GetRequiredService<AccessDbContext>();
@@ -85,6 +97,8 @@ internal static class AccessDatabase
 
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         });
+
+        await RunOnAsync(dataSource, $"REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA \"{AccessDbContext.CatalogSchema}\" FROM \"{sharedRole}\"");
 
         foreach (var tenant in tenants)
         {
@@ -140,6 +154,12 @@ internal static class AccessDatabase
                 : UserModulePermission.CreateDeny(userId, permission.Id));
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         });
+
+    private static async Task RunOnAsync(NpgsqlDataSource dataSource, string sql)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        await RunAsync(connection, sql);
+    }
 
     private static string SetSearchPath(Guid tenant)
     {

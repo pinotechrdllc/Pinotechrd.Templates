@@ -46,7 +46,10 @@ public static partial class MigratorComposition
         AddLayers(builder);
         AddModules(builder);
 
-        services.AddDatabaseMigrator();
+        // The API's login, when it is not the migrator's: it becomes a member of every tenant's role (ADR 0012).
+        var section = builder.Configuration.GetSection(SectionName);
+        services.AddDatabaseMigrator(o => o.ApplicationRole =
+            section[nameof(MigratorOptions.ApplicationRole)] is { Length: > 0 } role ? role : null);
         return builder;
     }
 

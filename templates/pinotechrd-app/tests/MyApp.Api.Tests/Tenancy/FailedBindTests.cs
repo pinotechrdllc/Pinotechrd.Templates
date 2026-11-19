@@ -50,7 +50,7 @@ public class FailedBindTests(PostgresFixture postgres)
     {
         var options = new DbContextOptionsBuilder<AccessContext>();
         options.AddInterceptors(saboteur);
-        options.UseTenantPersistence(rig.DataSource, tenant, "Access");
+        options.UseTenantPersistence(rig.DataSource, tenant, "Access", allowPrivilegedLogin: true);
         return new AccessContext(options.Options);
     }
 
@@ -144,7 +144,7 @@ public class FailedBindTests(PostgresFixture postgres)
         await Assert.ThrowsAsync<InvalidOperationException>(() => context.Database.OpenConnectionAsync(Token));
         Assert.Equal(ConnectionState.Closed, context.Database.GetDbConnection().State);
 
-        await rig.ExecuteAsync($"CREATE SCHEMA \"{TenantSchemaName.For(tenant)}\"");
+        await rig.CreateTenantSchemaAsync(tenant);
         Assert.Equal(TenantSchemaName.For(tenant), await context.Database.SqlQueryRaw<string>(SchemaSql).SingleAsync(Token));
     }
 
@@ -159,7 +159,7 @@ public class FailedBindTests(PostgresFixture postgres)
 
         SyncMissingSchema(context);
 
-        await rig.ExecuteAsync($"CREATE SCHEMA \"{TenantSchemaName.For(tenant)}\"");
+        await rig.CreateTenantSchemaAsync(tenant);
         Assert.Equal(TenantSchemaName.For(tenant), SchemaOf(context));
     }
 

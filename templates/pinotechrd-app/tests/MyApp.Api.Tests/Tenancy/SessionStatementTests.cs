@@ -417,7 +417,7 @@ public class SessionStatementEfTests(PostgresFixture postgres)
         await context.Database.ExecuteSqlRawAsync("SET statement_timeout = 1000", Token);
         Assert.Equal("1s", await context.Database.SqlQueryRaw<string>("SELECT current_setting('statement_timeout') AS \"Value\"").SingleAsync(Token));
         Assert.Equal("1", await context.Database.SqlQueryRaw<string>("SELECT set_config('app.user_id','1',false) AS \"Value\"").SingleAsync(Token));
-        await context.Database.ExecuteSqlRawAsync("CREATE FUNCTION scoped_fn() RETURNS int LANGUAGE sql SET search_path = pg_catalog AS $$ SELECT 1 $$", Token);
+        await context.Database.ExecuteSqlRawAsync("CREATE FUNCTION pg_temp.scoped_fn() RETURNS int LANGUAGE sql SET search_path = pg_catalog AS $$ SELECT 1 $$", Token);
         Assert.Equal(TenantSchemaName.For(tenant), await context.Database.SqlQueryRaw<string>(SchemaSql).SingleAsync(Token));
     }
 
@@ -448,11 +448,11 @@ public class SessionStatementEfTests(PostgresFixture postgres)
         Assert.Equal(TenantSchemaName.For(tenant), await context.Database.SqlQueryRaw<string>(SchemaSql).SingleAsync(Token));
     }
 
-    // PINNED same-tenant behaviour, not a guarantee and not a cross-tenant leak: a temporary table shadows a tenant table of the
-    // same name for the rest of that session (pg_temp comes first in every path), and it is gone once the connection returns to
-    // the pool, so a later scope on the same physical connection (pool of one: same backend) sees the real table.
+    // Breaks when pg_temp is searched before the tenant's schema: a temporary table named like a tenant table would then answer
+    // the tenant's own queries in place of the real table (pg_temp is last in every tenant path), and a later scope on the same
+    // physical connection (pool of one: same backend) must still see the real table.
     [Fact]
-    public async Task PinnedBehaviourATemporaryTableShadowsATenantTableOnlyUntilTheConnectionIsReturned()
+    public async Task ATemporaryTableNamedLikeATenantTableNeverShadowsItAndIsGoneWhenTheConnectionIsReturned()
     {
         await using var rig = await TenantRig.StartAsync(postgres, maxPoolSize: 1);
         var tenant = Guid.NewGuid();
@@ -464,9 +464,9 @@ public class SessionStatementEfTests(PostgresFixture postgres)
             var context = scope.ServiceProvider.GetRequiredService<AccessContext>();
             await context.Database.OpenTenantConnectionAsync(Token);
             await context.Database.ExecuteSqlRawAsync("CREATE TEMP TABLE access_items (id uuid, name text, created_by text)", Token);
-            await context.Database.ExecuteSqlRawAsync("INSERT INTO access_items (id, name) VALUES (gen_random_uuid(), 'temp-row')", Token);
+            await context.Database.ExecuteSqlRawAsync("INSERT INTO pg_temp.access_items (id, name) VALUES (gen_random_uuid(), 'temp-row')", Token);
 
-            Assert.Equal(["temp-row"], await context.Items.Select(i => i.Name).ToListAsync(Token));
+            Assert.Equal(["real-row"], await context.Items.Select(i => i.Name).ToListAsync(Token));
             first = await context.Database.SqlQueryRaw<long>("SELECT pg_backend_pid()::bigint AS \"Value\"").SingleAsync(Token);
         }
 
