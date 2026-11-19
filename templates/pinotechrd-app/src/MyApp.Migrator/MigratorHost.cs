@@ -9,6 +9,7 @@ using MyApp.BuildingBlocks.Domain;
 using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
+using MyApp.Modules.Access.Infrastructure.Seeding;
 using Npgsql;
 
 namespace MyApp.Migrator;
@@ -16,8 +17,9 @@ namespace MyApp.Migrator;
 /// <summary>
 /// The migrator command: reads its settings (command line, environment, user secrets in Development, appsettings),
 /// validates them, migrates the shared catalog and then every tenant under one global lock, writes a report and returns
-/// the exit code. The report has one line for each shared schema, one per tenant (its id and the migrations applied) and
-/// a summary; it never holds a connection string or a password. With the <see cref="ProvisionCommand"/> command it
+/// the exit code. The report has one line for each shared schema, one per tenant (its id and the migrations applied), one
+/// for the plans seeded in the catalog once it is up to date (ADR 0013) and a summary; it never holds a connection string
+/// or a password. With the <see cref="ProvisionCommand"/> command it
 /// provisions one tenant instead (ADR 0011), once the catalog is up to date, with the same exit codes.
 /// </summary>
 public static class MigratorHost
@@ -183,13 +185,51 @@ public static class MigratorHost
                 : Invariant($"Tenant {tenant.TenantId}: failed after {applied} migration(s). {Describe(tenant.Error!)}")).ConfigureAwait(false);
         }
 
+        // The plans once the catalog is up to date, whatever the tenants did: they live in the catalog only.
+        var plansSeeded = true;
+        if (result.Shared.All(s => s.Succeeded))
+        {
+            try
+            {
+                plansSeeded = await SeedPlansAsync(services, report, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await ReportCancelledAsync(report).ConfigureAwait(false);
+                return Cancelled;
+            }
+        }
+
         var failedTenants = result.Tenants.Count(t => !t.Succeeded);
         var sharedDone = result.Shared.Count(s => s.Succeeded);
         var tenantsDone = result.Tenants.Count - failedTenants;
         await report.WriteLineAsync(Invariant(
                 $"Done: {sharedDone} of {result.Shared.Count} shared schema(s) and {tenantsDone} of {result.Tenants.Count} tenant(s) up to date, {failedTenants} tenant(s) failed."))
             .ConfigureAwait(false);
-        return result.Succeeded ? Success : MigrationFailed;
+        return result.Succeeded && plansSeeded ? Success : MigrationFailed;
+    }
+
+    // One report line: the plans and plan modules added, or the failure. A cancellation goes up as one.
+    private static async Task<bool> SeedPlansAsync(IServiceProvider services, TextWriter report, CancellationToken cancellationToken)
+    {
+        CatalogSeedResult seeded;
+        try
+        {
+            var scope = services.CreateAsyncScope();
+            await using (scope.ConfigureAwait(false))
+            {
+                seeded = await scope.ServiceProvider.GetRequiredService<CatalogPlanSeeder>().SeedAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            await report.WriteLineAsync($"Plans: failed. {Describe(exception)}").ConfigureAwait(false);
+            return false;
+        }
+
+        await report.WriteLineAsync(Invariant($"Plans: {seeded.PlansAdded} plan(s) and {seeded.PlanModulesAdded} plan module(s) added."))
+            .ConfigureAwait(false);
+        return true;
     }
 
     // Provisions one tenant once the catalog is up to date. Not under the global lock: the tenant's own migration lock

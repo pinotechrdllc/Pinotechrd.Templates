@@ -10,6 +10,7 @@ using MyApp.BuildingBlocks.Application.Security;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Web.Authorization;
 using MyApp.Modules.Access.Application;
+using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Endpoints.Security;
 using MyApp.Modules.Access.Infrastructure.Persistence;
 using MyApp.Modules.Access.Infrastructure.Security;
@@ -50,6 +51,7 @@ public sealed class AccessModule : IModule
         AddSecurity(context);
 
         services.AddAccessPersistence();
+        services.AddAccessPermissions();
         services.AddScoped<ISecurityDataProvider, AccessSecurityDataProvider>();
         services.AddScoped<IIdentityValidator<AccessUser>, AccessIdentityValidator>();
         services.AddPermissionChecker<SecurityEnginePermissionChecker>(Name);
