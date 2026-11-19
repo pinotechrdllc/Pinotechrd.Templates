@@ -19,7 +19,8 @@ namespace MyApp.Api;
 /// signature verifies against the current or a previous certificate are kept: a row the application's login could insert
 /// without the private key (unsigned, unknown signer, bad signature) is skipped and logged with its id only.</item>
 /// <item>Without a certificate (Development only) rows are stored unsigned and all are read.</item>
-/// <item>A row whose XML does not parse is skipped and logged with its id only, so one bad row does not stop the ring.</item>
+/// <item>A row whose XML does not parse, or a key without a valid id, is skipped and logged with its id only, so one bad row
+/// does not stop the ring. A later row repeating a key id already read (a replayed signed row) is skipped the same way.</item>
 /// </list>
 /// </summary>
 /// <param name="store">The rows of the key ring.</param>
@@ -33,10 +34,13 @@ internal sealed partial class DatabaseXmlRepository(
     // Separates this signature from any other made with the same certificate.
     private static readonly byte[] Domain = Encoding.UTF8.GetBytes("MyApp.DataProtection.Key.v1");
 
+    private static readonly XName KeyElement = "key";
+
     /// <inheritdoc />
     public IReadOnlyCollection<XElement> GetAllElements()
     {
         var elements = new List<XElement>();
+        var keyIds = new HashSet<Guid>();
         foreach (var row in store.ReadAll())
         {
             if (certificates.Current is not null && !IsSigned(row))
@@ -45,14 +49,35 @@ internal sealed partial class DatabaseXmlRepository(
                 continue;
             }
 
+            XElement element;
             try
             {
-                elements.Add(XElement.Parse(row.Xml));
+                element = XElement.Parse(row.Xml);
             }
             catch (XmlException)
             {
                 LogMalformed(logger, row.Id);
+                continue;
             }
+
+            // The key manager refuses a key id twice, which would stop the ring: keep the first stored row of each key.
+            // Revocations repeat harmlessly (the key manager collects them in a set), so they pass as they are.
+            if (element.Name == KeyElement)
+            {
+                if (!Guid.TryParse((string?)element.Attribute("id"), out var keyId))
+                {
+                    LogMalformed(logger, row.Id);
+                    continue;
+                }
+
+                if (!keyIds.Add(keyId))
+                {
+                    LogDuplicate(logger, row.Id);
+                    continue;
+                }
+            }
+
+            elements.Add(element);
         }
 
         return elements;
@@ -128,4 +153,8 @@ internal sealed partial class DatabaseXmlRepository(
     [LoggerMessage(EventId = 2, EventName = "DataProtectionKeyMalformed", Level = LogLevel.Warning,
         Message = "Data Protection key row {RowId} is skipped: its XML does not parse.")]
     private static partial void LogMalformed(ILogger logger, int rowId);
+
+    [LoggerMessage(EventId = 3, EventName = "DataProtectionKeyDuplicate", Level = LogLevel.Warning,
+        Message = "Data Protection key row {RowId} is skipped: an earlier row holds the same key id.")]
+    private static partial void LogDuplicate(ILogger logger, int rowId);
 }
