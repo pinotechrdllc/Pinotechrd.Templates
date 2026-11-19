@@ -15,7 +15,8 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// format (PBKDF2 with HMAC-SHA512) at <see cref="IterationCount"/> iterations; <see cref="MinimumLength"/> to
 /// <see cref="MaximumLength"/> Unicode scalar values, not only white space, and no composition rule (length, not character
 /// classes, makes a password strong), checked by <see cref="AccessPasswordValidator"/>; one account per email, the user
-/// name being the email (<see cref="IsValidUserEmail"/>). Registered after the security library, it overrides the
+/// name being the email (<see cref="IsValidUserEmail"/>); <see cref="MaxFailedAccessAttempts"/> failed sign-ins lock an
+/// account, new ones included, for <see cref="LockoutDuration"/>. Registered after the security library, it overrides the
 /// library's rules (8 characters and a digit). The bootstrap command checks its settings at start with
 /// <see cref="IsValidPassword"/> and <see cref="IsValidUserEmail"/>, the same functions.
 /// </summary>
@@ -32,6 +33,12 @@ public static class AccessPasswordPolicy
 
     /// <summary>The longest email, the length of the users table's column.</summary>
     public const int MaxEmailLength = 256;
+
+    /// <summary>The failed sign-ins in a row that lock an account.</summary>
+    public const int MaxFailedAccessAttempts = 10;
+
+    /// <summary>How long a locked account stays locked.</summary>
+    public static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>The characters of a user name (Identity's default set, set explicitly so this policy owns it).</summary>
     public const string AllowedUserNameCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._@+";
@@ -58,6 +65,10 @@ public static class AccessPasswordPolicy
             identity.Password.RequireNonAlphanumeric = false;
             identity.User.AllowedUserNameCharacters = AllowedUserNameCharacters;
             identity.User.RequireUniqueEmail = true;
+            // Slows online guessing without letting a few typos, or someone else, lock a user out for long.
+            identity.Lockout.AllowedForNewUsers = true;
+            identity.Lockout.MaxFailedAccessAttempts = MaxFailedAccessAttempts;
+            identity.Lockout.DefaultLockoutTimeSpan = LockoutDuration;
         });
         services.TryAddEnumerable(ServiceDescriptor.Scoped<IPasswordValidator<AccessUser>, AccessPasswordValidator>());
         return services;

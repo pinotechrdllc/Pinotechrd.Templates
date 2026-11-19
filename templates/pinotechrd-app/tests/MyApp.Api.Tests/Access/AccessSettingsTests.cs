@@ -1,8 +1,12 @@
 using System.Diagnostics;
 using System.Net;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using MyApp.Api.Tests.Support;
+using MyApp.Modules.Access.Infrastructure.Security;
+using Pinotechrd.Security.Options;
 
 namespace MyApp.Api.Tests.Access;
 
@@ -178,6 +182,88 @@ public class AccessSettingsTests
         {
             Directory.Delete(scratch, recursive: true);
         }
+    }
+
+    // ---- Refresh tokens: lifetimes and lockout ----
+
+    private const string AbsoluteKey = "Access:RefreshTokens:AbsoluteLifetime";
+
+    private const string SlidingKey = "Access:Jwt:RefreshTokenExpiryDays";
+
+    // Breaks when the shipped defaults change: access tokens last 10 minutes, a refresh token slides 7 days, a session lasts at
+    // most 30 days.
+    [Fact]
+    public void TheShippedSettingsGiveTenMinuteAccessTokensSevenDaySlidingAndThirtyDayAbsoluteRefreshTokens()
+    {
+        using var factory = Host();
+
+        var security = factory.Services.GetRequiredService<IOptions<PinotechrdSecurityOptions>>().Value;
+        var refresh = factory.Services.GetRequiredService<IOptions<RefreshTokenOptions>>().Value;
+
+        Assert.Equal(10, security.Jwt.ExpiryMinutes);
+        Assert.Equal(7, security.Jwt.RefreshTokenExpiryDays);
+        Assert.Equal(TimeSpan.FromDays(30), refresh.AbsoluteLifetime);
+    }
+
+    // Breaks when the section is not read from Access:RefreshTokens.
+    [Fact]
+    public void TheAbsoluteLifetimeIsReadFromTheAccessRefreshTokensSection()
+    {
+        using var factory = Host().WithSetting(AbsoluteKey, "12.00:00:00");
+
+        Assert.Equal(TimeSpan.FromDays(12), factory.Services.GetRequiredService<IOptions<RefreshTokenOptions>>().Value.AbsoluteLifetime);
+    }
+
+    // Breaks when a session may end before its first token would: an absolute lifetime shorter than the sliding one stops the
+    // host and the message names the absolute setting.
+    [Fact]
+    public void AnAbsoluteLifetimeShorterThanTheSlidingOneStopsTheHost()
+    {
+        using var factory = Host().WithSetting(AbsoluteKey, "3.00:00:00");
+
+        var failure = StartupFailure.Capture(factory);
+
+        StartupFailure.AssertOptionsInvalid(failure, "AbsoluteLifetime");
+    }
+
+    // Breaks when the comparison is off by one at the boundary: equal is accepted, one second less is refused.
+    [Fact]
+    public void AnAbsoluteLifetimeEqualToTheSlidingOneStartsTheHostAndOneSecondLessDoesNot()
+    {
+        using (var equal = Host().WithSetting(AbsoluteKey, "7.00:00:00"))
+        {
+            Assert.Equal(TimeSpan.FromDays(7), equal.Services.GetRequiredService<IOptions<RefreshTokenOptions>>().Value.AbsoluteLifetime);
+        }
+
+        using var shorter = Host().WithSetting(AbsoluteKey, "6.23:59:59");
+        StartupFailure.AssertOptionsInvalid(StartupFailure.Capture(shorter), "AbsoluteLifetime");
+    }
+
+    // Breaks when the sliding lifetime is not checked to be positive (zero or negative days).
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    public void ASlidingLifetimeOfZeroOrLessStopsTheHost(string days)
+    {
+        using var factory = Host().WithSetting(SlidingKey, days);
+
+        var failure = StartupFailure.Capture(factory);
+
+        StartupFailure.AssertOptionsInvalid(failure, "RefreshTokenExpiryDays");
+    }
+
+    // Breaks when the lockout rules of the module change: 10 failed sign-ins lock an account, new ones included, for 15 minutes.
+    [Fact]
+    public void TenFailedSignInsLockAnAccountForFifteenMinutesNewUsersIncluded()
+    {
+        using var factory = Host();
+
+        var lockout = factory.Services.GetRequiredService<IOptions<IdentityOptions>>().Value.Lockout;
+
+        Assert.Equal(10, AccessPasswordPolicy.MaxFailedAccessAttempts);
+        Assert.Equal(10, lockout.MaxFailedAccessAttempts);
+        Assert.Equal(TimeSpan.FromMinutes(15), lockout.DefaultLockoutTimeSpan);
+        Assert.True(lockout.AllowedForNewUsers);
     }
 
     private static string HostName() => Architecture.ReferenceRules.NameOf(Architecture.ReferenceRules.Api);

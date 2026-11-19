@@ -86,6 +86,7 @@ public sealed class AccessModule : IModule
         services.AddPinotechrdSecurity<AccessDbContext, AccessUser, AccessRole>(
             security => security.Tenancy.ClaimType = identity.TenantIdClaimType);
         DecorateSecurityStore(services);
+        ReplaceRefreshTokenStore(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ApiIdentityOptions>, TenantClaimTypeValidator>());
 
         var configuration = context.Configuration;
@@ -105,6 +106,19 @@ public sealed class AccessModule : IModule
 
         // sub stays sub: the platform would rename it to the name-identifier URI, and the API reads the claim as written.
         services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, bearer => bearer.MapInboundClaims = false);
+    }
+
+    // The library's in-memory store loses every session on restart and is not shared between instances: the tenant's
+    // tables replace it, scoped like their context (the library's auth manager is scoped too). The absolute lifetime is
+    // validated at start against the library's sliding one.
+    private static void ReplaceRefreshTokenStore(IServiceCollection services)
+    {
+        services.RemoveAll<IRefreshTokenStore>();
+        services.AddScoped<IRefreshTokenStore, DatabaseRefreshTokenStore>();
+        services.AddOptions<RefreshTokenOptions>()
+            .BindConfiguration(RefreshTokenOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RefreshTokenOptions>, RefreshTokenOptionsValidator>());
     }
 
     // The engine reads the per-user overrides from ISecurityStore: the library's registration is wrapped so they follow the
