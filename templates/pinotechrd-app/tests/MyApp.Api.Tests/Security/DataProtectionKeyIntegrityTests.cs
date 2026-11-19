@@ -327,6 +327,92 @@ public class DataProtectionKeyIntegrityTests(PostgresFixture postgres)
         Assert.Equal("another", protector.Unprotect(protector.Protect("another")));
     }
 
+    // Breaks when every reload of the ring reads and checks all rows again (junk rows would cost, and be logged, on every refresh
+    // of the ring instead of once), or when a row stored after a load is not read by the next one.
+    [Fact]
+    public async Task ReloadingTheRingChecksOnlyTheRowsAddedSinceTheLastRead()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        _ = await ProtectWithLegitimateHostAsync(database, files);
+        for (var i = 0; i < 5; i++)
+        {
+            _ = await database.InsertAsApplicationAsync("key-junk-" + i, "<junk />", signature: null, signer: null);
+        }
+
+        using var host = database.Host(files);
+        var sink = host.CaptureLogs();
+        var manager = host.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>();
+
+        _ = manager.GetAllKeys();
+        var afterFirstLoad = RepositoryWarnings(sink).Count;
+        _ = manager.GetAllKeys();
+        _ = manager.GetAllKeys();
+        var afterReloads = RepositoryWarnings(sink).Count;
+        _ = await database.InsertAsApplicationAsync("key-junk-new", "<junk />", signature: null, signer: null);
+        _ = manager.GetAllKeys();
+        var afterNewRow = RepositoryWarnings(sink).Count;
+
+        Assert.Equal(5, afterFirstLoad);
+        Assert.Equal(afterFirstLoad, afterReloads);
+        Assert.Equal(afterReloads + 1, afterNewRow);
+    }
+
+    // Breaks when a host keeps only what it read at its first load: a key another host stores afterwards (two instances behind a
+    // load balancer) would never be picked up by this one.
+    [Fact]
+    public async Task AKeyAnotherHostStoresAfterTheFirstLoadIsStillPickedUp()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var first = database.Host(files);
+        _ = ProtectorOf(first).Protect(Payload);
+        var firstManager = first.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>();
+        Assert.Single(firstManager.GetAllKeys());
+
+        using var second = database.Host(files);
+        var created = second.Services.GetRequiredService<Microsoft.AspNetCore.DataProtection.KeyManagement.IKeyManager>()
+            .CreateNewKey(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(30));
+
+        Assert.Contains(firstManager.GetAllKeys(), key => key.KeyId == created.KeyId);
+    }
+
+    // Breaks when a row with an oversized XML (a signed one, so only its size is wrong) is parsed or used, or is skipped without a
+    // warning that names its id, or stops the ring.
+    [Fact]
+    public async Task ARowWithAnOversizedXmlIsSkippedWithItsIdAndTheRingStillWorks()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var certificate = files.LoadWithPrivateKey();
+        var legitimate = await ProtectWithLegitimateHostAsync(database, files);
+        var oversized = "<junk>" + new string('a', 70_000) + "</junk>";
+        var id = await database.InsertAsApplicationAsync("key-big", oversized, KeyForgery.Sign(certificate, "key-big", oversized), KeyForgery.Thumbprint(certificate));
+
+        using var host = database.Host(files);
+        AssertRingSurvives(host, legitimate, [id]);
+    }
+
+    // Breaks when a row whose signature has a length no signature of the signer's key has (here 10 bytes, with the right signer) is
+    // used, or skipped without a warning that names its id, or stops the ring.
+    [Fact]
+    public async Task ARowWithASignatureOfTheWrongLengthIsSkippedWithItsIdAndTheRingStillWorks()
+    {
+        await using var database = await KeyRingDatabase.CreateAsync(postgres);
+        using var files = TestCertificates.CreateRsa();
+        using var certificate = files.LoadPublic();
+        var legitimate = await ProtectWithLegitimateHostAsync(database, files);
+        var forged = ForgeEncryptedFor(files, await database.FirstKeyXmlAsync());
+        var id = await database.InsertAsApplicationAsync("key-short", forged.Xml, new byte[10], KeyForgery.Thumbprint(certificate));
+
+        using var host = database.Host(files);
+        AssertRingSurvives(host, legitimate, [id]);
+        Assert.ThrowsAny<CryptographicException>(() => ProtectorOf(host).Unprotect(forged.ProtectedPayload));
+    }
+
+    private static List<LogEvent> RepositoryWarnings(CollectingSink sink) =>
+        [.. sink.Events.Where(e => e.Level >= LogEventLevel.Warning && (e.CategoryOf() ?? string.Empty).EndsWith("DatabaseXmlRepository", StringComparison.Ordinal))];
+
     private static void AssertRingSurvives(ApiHostFactory host, string legitimate, int[] malformedIds)
     {
         var sink = host.CaptureLogs();
