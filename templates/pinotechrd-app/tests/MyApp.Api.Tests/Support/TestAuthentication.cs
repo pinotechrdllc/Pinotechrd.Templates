@@ -40,8 +40,21 @@ internal sealed class TestAuthenticationHandler(
     public static void Register(IServiceCollection services)
     {
         services.AddAuthentication(SchemeName).AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(SchemeName, _ => { });
-        services.AddAuthorization();
+        MakeDefault(services, SchemeName);
     }
+
+    /// <summary>
+    /// Makes <paramref name="scheme"/> the scheme that authenticates, challenges and forbids. The Access module makes the
+    /// bearer scheme the default for each of the three, and those specific defaults win over <c>DefaultScheme</c>
+    /// (<c>AddAuthentication(name)</c>): a host that swaps in a scheme of its own says so for each of them.
+    /// </summary>
+    public static void MakeDefault(IServiceCollection services, string scheme) =>
+        services.Configure<AuthenticationOptions>(options =>
+        {
+            options.DefaultAuthenticateScheme = scheme;
+            options.DefaultChallengeScheme = scheme;
+            options.DefaultForbidScheme = scheme;
+        });
 
     /// <summary>The <c>sub</c> the scheme issues for <paramref name="user"/>: always the same GUID for the same name.</summary>
     public static Guid UserIdOf(string user) => new(SHA256.HashData(Encoding.UTF8.GetBytes(user)).AsSpan(0, 16));

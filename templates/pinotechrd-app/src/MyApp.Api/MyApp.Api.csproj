@@ -14,6 +14,8 @@
     <ProjectReference Include="..\MyApp.Contracts\MyApp.Contracts.csproj" />
     <ProjectReference Include="..\MyApp.Resources\MyApp.Resources.csproj" />
 <!--#endif -->
+    <!-- The Access module, in both architectures: its endpoints project is its composition root. -->
+    <ProjectReference Include="..\Modules\Access\MyApp.Modules.Access.Endpoints\MyApp.Modules.Access.Endpoints.csproj" />
     <ProjectReference Include="..\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\BuildingBlocks\MyApp.BuildingBlocks.Web\MyApp.BuildingBlocks.Web.csproj" />
   </ItemGroup>

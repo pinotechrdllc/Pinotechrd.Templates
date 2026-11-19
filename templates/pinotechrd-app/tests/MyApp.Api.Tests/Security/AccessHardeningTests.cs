@@ -314,8 +314,17 @@ public class AccessHardeningTests
     public void NoDefaultChallengeOrForbidSchemeStopsTheStartAndSaysWhatToSet()
     {
         using var factory = new ApiHostFactory().WithServices(services =>
+        {
             services.AddAuthentication(options => options.DefaultAuthenticateScheme = TestAuthenticationHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, _ => { }));
+                .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, _ => { });
+            // The Access module sets challenge and forbid defaults of its own; this case is the setup that has none.
+            services.Configure<AuthenticationOptions>(options =>
+            {
+                options.DefaultScheme = null;
+                options.DefaultChallengeScheme = null;
+                options.DefaultForbidScheme = null;
+            });
+        });
 
         var message = FailureNaming(factory, "challenge");
 
@@ -329,13 +338,24 @@ public class AccessHardeningTests
     public void ARealSchemeThatIsNotTheDefaultWhileThePlaceholderIsStopsTheStartAndSaysWhatToDo()
     {
         using var factory = new ApiHostFactory().WithServices(services =>
+        {
             services.AddAuthentication()
-                .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, _ => { }));
+                .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(TestAuthenticationHandler.SchemeName, _ => { });
+            // The Access module makes its bearer scheme the default; this case is the setup where the placeholder still is.
+            services.Configure<AuthenticationOptions>(options =>
+            {
+                options.DefaultScheme = null;
+                options.DefaultAuthenticateScheme = ApiAuthorizationRegistration.PlaceholderScheme;
+                options.DefaultChallengeScheme = ApiAuthorizationRegistration.PlaceholderScheme;
+                options.DefaultForbidScheme = ApiAuthorizationRegistration.PlaceholderScheme;
+            });
+        });
 
         var message = FailureNaming(factory, TestAuthenticationHandler.SchemeName);
 
         Assert.Contains(ApiAuthorizationRegistration.PlaceholderScheme, message, StringComparison.Ordinal);
-        Assert.Contains("AddAuthentication(\"" + TestAuthenticationHandler.SchemeName + "\")", message, StringComparison.Ordinal);
+        // The hint names the first real scheme, which is now the module's bearer scheme, not necessarily this one.
+        Assert.Contains("AddAuthentication(\"", message, StringComparison.Ordinal);
     }
 
     // The three complete setups start: the placeholder alone, a real default scheme, and a separate authenticate and challenge pair.

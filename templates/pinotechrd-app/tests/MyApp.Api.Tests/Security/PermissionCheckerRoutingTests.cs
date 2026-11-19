@@ -13,7 +13,7 @@ namespace MyApp.Api.Tests.Security;
 // first segment, and denies a permission whose module has none.
 public class PermissionCheckerRoutingTests
 {
-    private const string Read = "Access.Users.Read";
+    private const string Read = "Reports.Users.Read";
 
     private const string Invoice = "Billing.Invoices.Read";
 
@@ -43,7 +43,7 @@ public class PermissionCheckerRoutingTests
     public async Task APermissionReachesTheCheckerOfItsFirstSegmentWithTheExactStringAndTheCurrentUser()
     {
         var access = new TestPermissionChecker(Read);
-        using var factory = Host().WithPermissionChecker(access, "Access");
+        using var factory = Host().WithPermissionChecker(access, "Reports");
         using var client = factory.CreateClient();
         var user = Guid.Parse("9d3c1a52-6f0e-4f43-8d1b-2a7e5c9b0f11");
 
@@ -61,7 +61,7 @@ public class PermissionCheckerRoutingTests
     public async Task APermissionOfAModuleWithoutACheckerAnswers403AndNoOtherCheckerIsAsked()
     {
         var access = new TestPermissionChecker(Read, Invoice, Orphan);
-        using var factory = Host().WithPermissionChecker(access, "Access");
+        using var factory = Host().WithPermissionChecker(access, "Reports");
         using var client = factory.CreateClient();
 
         using var orphan = await client.GetAsAsync("/api/v1/routing/orphan", "alice");
@@ -77,7 +77,7 @@ public class PermissionCheckerRoutingTests
     public async Task TheCheckerOfAModuleWhoseNameDiffersOnlyInCaseIsNotUsed()
     {
         var upper = new TestPermissionChecker(Read);
-        using var factory = Host().WithPermissionChecker(upper, "ACCESS");
+        using var factory = Host().WithPermissionChecker(upper, "REPORTS");
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsAsync("/api/v1/routing/access", "alice");
@@ -93,13 +93,13 @@ public class PermissionCheckerRoutingTests
     {
         var access = new TestPermissionChecker(Read, Invoice);
         var billing = new TestPermissionChecker(Invoice);
-        using var factory = Host().WithPermissionChecker(access, "Access").WithPermissionChecker(billing, "Billing");
+        using var factory = Host().WithPermissionChecker(access, "Reports").WithPermissionChecker(billing, "Billing");
         using var client = factory.CreateClient();
 
-        using var onAccess = await client.GetAsAsync("/api/v1/routing/access", "alice");
+        using var onReports = await client.GetAsAsync("/api/v1/routing/access", "alice");
         using var onBilling = await client.GetAsAsync("/api/v1/routing/billing", "alice");
 
-        Assert.Equal(HttpStatusCode.OK, onAccess.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, onReports.StatusCode);
         Assert.Equal(HttpStatusCode.OK, onBilling.StatusCode);
         Assert.Equal([Read], access.Calls.Select(c => c.Permission));
         Assert.Equal([Invoice], billing.Calls.Select(c => c.Permission));
@@ -111,7 +111,7 @@ public class PermissionCheckerRoutingTests
     {
         var access = new TestPermissionChecker();
         var billing = new TestPermissionChecker(Read, Invoice);
-        using var factory = Host().WithPermissionChecker(access, "Access").WithPermissionChecker(billing, "Billing");
+        using var factory = Host().WithPermissionChecker(access, "Reports").WithPermissionChecker(billing, "Billing");
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsAsync("/api/v1/routing/access", "alice");
@@ -140,7 +140,7 @@ public class PermissionCheckerRoutingTests
     [Fact]
     public async Task ACheckerRegisteredWithAddPermissionCheckerServesItsModule()
     {
-        using var factory = Host().WithServices(services => services.AddPermissionChecker<GrantingChecker>("Access"));
+        using var factory = Host().WithServices(services => services.AddPermissionChecker<GrantingChecker>("Reports"));
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsAsync("/api/v1/routing/access", "alice");
@@ -150,8 +150,8 @@ public class PermissionCheckerRoutingTests
 
     // Breaks when two checkers for one module are accepted: which one answers would depend on registration order.
     [Theory]
-    [InlineData("Access", "Access")]
-    [InlineData("Access", "ACCESS")]
+    [InlineData("Reports", "Reports")]
+    [InlineData("Reports", "REPORTS")]
     [InlineData("Sales2", "SALES2")]
     public void TwoCheckersForOneModuleIgnoringCaseStopTheStartAndBothAreNamed(string first, string second)
     {
@@ -190,7 +190,7 @@ public class PermissionCheckerRoutingTests
     // text at all.
     [Theory]
     [InlineData("access")]
-    [InlineData("Access.Users")]
+    [InlineData("Reports.Users")]
     [InlineData("Acc ess")]
     [InlineData("")]
     public void AKeyThatIsNotAModuleNameStopsTheStart(string key)
@@ -213,7 +213,7 @@ public class PermissionCheckerRoutingTests
     // Breaks when the public registration accepts a name it would later have to refuse at the start.
     [Theory]
     [InlineData("access")]
-    [InlineData("Access.Users")]
+    [InlineData("Reports.Users")]
     [InlineData("")]
     [InlineData("Ac cess")]
     public void AddPermissionCheckerRefusesAnInvalidModuleName(string module)
@@ -228,7 +228,7 @@ public class PermissionCheckerRoutingTests
     {
         var services = new ServiceCollection();
 
-        Assert.Same(services, services.AddPermissionChecker<GrantingChecker>("Access"));
+        Assert.Same(services, services.AddPermissionChecker<GrantingChecker>("Reports"));
     }
 
     // Offenders are reported together with the rest: one message for a clash and a stray checker.

@@ -1,17 +1,22 @@
+using MyApp.BuildingBlocks.Web;
+using MyApp.Modules.Access.Endpoints;
+
 namespace MyApp.Api;
 
 /// <summary>
-/// Joins the business code to the host. Shared by both architectures: the parts that differ are partial methods
-/// declared here and implemented, when the architecture has something to add, in a file of their own that only that
-/// architecture keeps (<c>BusinessComposition.Clean.cs</c> registers the layers of a clean application,
-/// <c>BusinessComposition.Modular.cs</c> adds the modules). A partial method with no implementation is not dead code:
-/// the compiler removes the call, so this file needs no conditional text.
+/// Joins the business code to the host. Shared by both architectures: the Access module (users, roles, permissions and
+/// the security library) is composed here in both, and the parts that differ are partial methods declared here and
+/// implemented, when the architecture has something to add, in a file of their own that only that architecture keeps
+/// (<c>BusinessComposition.Clean.cs</c> registers the layers of a clean application, <c>BusinessComposition.Modular.cs</c>
+/// adds the modules). A partial method with no implementation is not dead code: the compiler removes the call, so this
+/// file needs no conditional text.
 /// </summary>
 public static partial class BusinessComposition
 {
     /// <summary>
-    /// Registers the business code of the application: in a clean application, the services of its layers (the
-    /// <c>*Handler</c> classes of the application layer); in a modular application, each of its modules once.
+    /// Registers the business code of the application: the Access module, then, in a clean application, the services of
+    /// its layers (the <c>*Handler</c> classes of the application layer); in a modular application, each of its modules
+    /// once.
     /// </summary>
     /// <param name="builder">The builder of the host.</param>
     /// <returns>The same builder, for chaining.</returns>
@@ -19,6 +24,7 @@ public static partial class BusinessComposition
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        builder.AddModule<AccessModule>();
         AddLayers(builder);
         AddModules(builder);
         return builder;

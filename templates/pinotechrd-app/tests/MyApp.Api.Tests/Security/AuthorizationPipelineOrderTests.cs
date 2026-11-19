@@ -30,6 +30,7 @@ public class AuthorizationPipelineOrderTests
         {
             services.AddSingleton(counter);
             services.AddAuthentication(CountingHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, CountingHandler>(CountingHandler.SchemeName, _ => { });
+            TestAuthenticationHandler.MakeDefault(services, CountingHandler.SchemeName);
             services.AddAuthenticatedRequestStep<CountingStep>();
         });
         using var client = factory.CreateClient();
@@ -146,7 +147,10 @@ public class AuthorizationPipelineOrderTests
     public async Task ASchemeThatThrowsIsRenderedAsTheInternalErrorProblemWithSecurityHeaders()
     {
         using var factory = new ApiHostFactory().WithServices(services =>
-            services.AddAuthentication(ThrowingHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, ThrowingHandler>(ThrowingHandler.SchemeName, _ => { }));
+        {
+            services.AddAuthentication(ThrowingHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, ThrowingHandler>(ThrowingHandler.SchemeName, _ => { });
+            TestAuthenticationHandler.MakeDefault(services, ThrowingHandler.SchemeName);
+        });
         using var client = factory.CreateClient();
 
         using var response = await client.SendAsync(ProblemFixtureEndpoint.Secured);

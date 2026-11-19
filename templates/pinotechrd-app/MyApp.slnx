@@ -23,8 +23,15 @@
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Infrastructure/MyApp.BuildingBlocks.Infrastructure.csproj" />
     <Project Path="src/BuildingBlocks/MyApp.BuildingBlocks.Web/MyApp.BuildingBlocks.Web.csproj" />
   </Folder>
-<!--#if (modular) -->
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Access/">
+    <Project Path="src/Modules/Access/MyApp.Modules.Access.Contracts/MyApp.Modules.Access.Contracts.csproj" />
+    <Project Path="src/Modules/Access/MyApp.Modules.Access.Domain/MyApp.Modules.Access.Domain.csproj" />
+    <Project Path="src/Modules/Access/MyApp.Modules.Access.Application/MyApp.Modules.Access.Application.csproj" />
+    <Project Path="src/Modules/Access/MyApp.Modules.Access.Infrastructure/MyApp.Modules.Access.Infrastructure.csproj" />
+    <Project Path="src/Modules/Access/MyApp.Modules.Access.Endpoints/MyApp.Modules.Access.Endpoints.csproj" />
+  </Folder>
+<!--#if (modular) -->
   <Folder Name="/src/Modules/MyModule/">
     <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Contracts/MyApp.Modules.MyModule.Contracts.csproj" />
     <Project Path="src/Modules/MyModule/MyApp.Modules.MyModule.Domain/MyApp.Modules.MyModule.Domain.csproj" />

@@ -52,6 +52,12 @@ public static class AuthenticatedRequestStepOrder
     /// </summary>
     public const int Tenant = -200;
 
+    /// <summary>
+    /// Reserved for the Access module's step that gives the tenant set by <see cref="Tenant"/> to the security library,
+    /// so the library's checks see the same tenant as the API. No built-in step uses it.
+    /// </summary>
+    public const int SecurityContext = -150;
+
     /// <summary>Adds the user and the tenant identifiers to the request completion event and to the server span.</summary>
     public const int Telemetry = -100;
 }

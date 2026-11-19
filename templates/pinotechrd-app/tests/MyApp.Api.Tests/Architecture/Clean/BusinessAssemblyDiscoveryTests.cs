@@ -20,16 +20,23 @@ public class BusinessAssemblyDiscoveryTests
             layers);
     }
 
+    // The Access module ships with every project, so a clean project has module assemblies: exactly the five of Access.
+    // The template source (the superset) also has the stamp module, which only the modular rules count.
     [Fact]
-    public void ACleanProjectHasNoModuleAssemblyAndOnlyTheTemplateSourceMay()
+    public void ACleanProjectHasNoModuleAssemblyButTheFiveOfAccess()
     {
         var modules = BusinessAssemblies.Discover()
             .Where(n => ModuleAssemblyNames.IsModuleAssembly(n, ReferenceRules.SolutionRoot))
             .ToList();
+        var access = ModuleAssemblyNames.Layers.Select(l => $"{ReferenceRules.SolutionRoot}.Modules.Access.{l}").Order(StringComparer.Ordinal).ToList();
 
-        if (!ArchitectureLayout.IsSuperset())
+        if (ArchitectureLayout.IsSuperset())
         {
-            Assert.Empty(modules);
+            Assert.Equal(access, modules.Where(n => n.StartsWith($"{ReferenceRules.SolutionRoot}.Modules.Access.", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+        }
+        else
+        {
+            Assert.Equal(access, modules.Order(StringComparer.Ordinal));
         }
     }
 }
