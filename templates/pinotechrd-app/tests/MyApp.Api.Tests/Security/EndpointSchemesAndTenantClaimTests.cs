@@ -91,7 +91,7 @@ public class EndpointSchemesAndTenantClaimTests
 
     private sealed class SelectTenantBStep : IAuthenticatedRequestStep
     {
-        public int Order => AuthenticatedRequestStepOrder.TenantSelection;
+        public int Order => AuthenticatedRequestStepOrder.TenantSelection + 1; // after the X-Tenant step, which holds the order itself
 
         public ValueTask<IResult?> InvokeAsync(HttpContext context)
         {

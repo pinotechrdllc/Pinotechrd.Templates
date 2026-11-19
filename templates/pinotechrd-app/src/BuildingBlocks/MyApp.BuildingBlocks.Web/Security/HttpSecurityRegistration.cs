@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using MyApp.BuildingBlocks.Web.Authorization;
 
 namespace MyApp.BuildingBlocks.Web.Security;
 
@@ -26,10 +27,11 @@ public static class HttpSecurityRegistration
 
     /// <summary>
     /// The request headers a listed origin may send besides the always-allowed ones: content negotiation and
-    /// language, the bearer token, the JSON content type and the conditional request headers.
+    /// language, the bearer token, the JSON content type, the conditional request headers and the tenant chosen before
+    /// login (<see cref="TenantHeader.Name"/>).
     /// </summary>
     public static IReadOnlyList<string> CorsRequestHeaders { get; } =
-        ["Accept", "Accept-Language", "Authorization", "Content-Type", "If-Match", "If-None-Match"];
+        ["Accept", "Accept-Language", "Authorization", "Content-Type", "If-Match", "If-None-Match", TenantHeader.Name];
 
     /// <summary>
     /// The response headers a browser client may read besides the always-exposed ones: when to retry after a 429

@@ -14,7 +14,9 @@ public static class TenancyComposition
     /// Registers the scoped current tenant (<see cref="TenantPersistenceRegistration.AddTenantPersistence"/>) and sets it,
     /// for each authenticated request, from the tenant claim of its token
     /// (<see cref="ApiAuthorizationRegistration.AddTenantFromToken"/>): never from a header, the query string or the body.
-    /// An authenticated request without a valid tenant claim is answered 401 on an endpoint that is not anonymous.
+    /// An authenticated request without a valid tenant claim is answered 401 on an endpoint that is not anonymous. The one
+    /// exception is an anonymous endpoint marked <c>TenantFromHeader()</c> (the login), whose tenant is the active tenant
+    /// the <c>X-Tenant</c> header names (<see cref="ApiAuthorizationRegistration.AddTenantFromHeader"/>).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -23,8 +25,11 @@ public static class TenancyComposition
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddTenantPersistence();
-        services.AddTenantFromToken(static (context, tenantId) =>
-            context.RequestServices.GetRequiredService<ICurrentTenantInitializer>().Initialize(tenantId));
+        services.AddTenantFromToken(SetTenant);
+        services.AddTenantFromHeader(SetTenant);
         return services;
     }
+
+    private static void SetTenant(HttpContext context, Guid tenantId) =>
+        context.RequestServices.GetRequiredService<ICurrentTenantInitializer>().Initialize(tenantId);
 }

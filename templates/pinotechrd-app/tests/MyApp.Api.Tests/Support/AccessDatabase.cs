@@ -114,6 +114,50 @@ internal static class AccessDatabase
         }
     }
 
+    /// <summary>
+    /// Adds the catalog row of each tenant (its slug and status), on the first subscription of the catalog: the row a
+    /// request's slug is looked up in and whose status decides whether the tenant may be used. Call after <see cref="SeedPlanAsync"/>.
+    /// </summary>
+    public static async Task SeedTenantRowsAsync(IServiceProvider services, params (Guid Id, string Slug, TenantStatus Status)[] tenants)
+    {
+        var dataSource = services.GetRequiredService<NpgsqlDataSource>();
+        var sharedRole = TenantRoles.SharedOf(dataSource.ConnectionString);
+        await RunOnAsync(dataSource, $"GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA \"{AccessDbContext.CatalogSchema}\" TO \"{sharedRole}\"");
+        await InTenantAsync(services, tenants[0].Id, async scope =>
+        {
+            var db = scope.GetRequiredService<AccessDbContext>();
+            var subscription = await db.SystemSubscriptions.Select(s => s.Id).FirstAsync(TestContext.Current.CancellationToken);
+            foreach (var (id, slug, status) in tenants)
+            {
+                db.Tenants.Add(new Tenant
+                {
+                    Id = id,
+                    Identifier = slug,
+                    Name = "Tenant " + slug,
+                    SubscriptionId = subscription,
+                    DbSchema = TenantSchemaName.For(id),
+                    Status = status,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            }
+
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+        await RunOnAsync(dataSource, $"REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA \"{AccessDbContext.CatalogSchema}\" FROM \"{sharedRole}\"");
+    }
+
+    /// <summary>Changes the status of the tenant's catalog row, as an operator would; the running host sees it on the next request.</summary>
+    public static async Task SetTenantStatusAsync(IServiceProvider services, Guid tenant, TenantStatus status)
+    {
+        var dataSource = services.GetRequiredService<NpgsqlDataSource>();
+        await using var connection = await dataSource.OpenConnectionAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"UPDATE \"{AccessDbContext.CatalogSchema}\".tenants SET status = @status WHERE id = @id";
+        command.Parameters.AddWithValue("status", (int)status);
+        command.Parameters.AddWithValue("id", tenant);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+    }
+
     /// <summary>Adds a user of <paramref name="tenant"/> with a password; returns its id.</summary>
     public static async Task<Guid> AddUserAsync(IServiceProvider services, Guid tenant, string email)
     {

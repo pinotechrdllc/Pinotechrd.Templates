@@ -40,9 +40,9 @@ public static class AuthenticatedRequestStepOrder
     public const int CurrentUser = -300;
 
     /// <summary>
-    /// Reserved for the step that selects the tenant of a request made before login (the login endpoint), which the
-    /// security module adds. No built-in step uses it. It runs after the current user and before <see cref="Tenant"/>,
-    /// which accepts a tenant already set only when it is the token's.
+    /// Sets the tenant of a request made before login (the login endpoint) from the <see cref="TenantHeader.Name"/>
+    /// header, only on an endpoint marked with <see cref="TenantHeader.TenantFromHeader{TBuilder}"/>. It runs after the
+    /// current user and before <see cref="Tenant"/>, which accepts a tenant already set only when it is the token's.
     /// </summary>
     public const int TenantSelection = -250;
 
@@ -51,6 +51,12 @@ public static class AuthenticatedRequestStepOrder
     /// request already has another tenant.
     /// </summary>
     public const int Tenant = -200;
+
+    /// <summary>
+    /// Reserved for the Access module's step that refuses a token whose tenant is no longer active, after
+    /// <see cref="Tenant"/> set it and before <see cref="SecurityContext"/>. No built-in step uses it.
+    /// </summary>
+    public const int TenantStatus = -175;
 
     /// <summary>
     /// Reserved for the Access module's step that gives the tenant set by <see cref="Tenant"/> to the security library,

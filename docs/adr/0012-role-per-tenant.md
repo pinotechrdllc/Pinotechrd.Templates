@@ -64,5 +64,13 @@ tenant was read through another. The project owner decided (2026-11-18) that Pos
 - The migrator login that created the roles holds `ADMIN` on them and granted their memberships. Rotating to another
   login means a superuser drops the roles and the new login creates them again; keep one migrator login per database.
 - Tenant code cannot write catalog tables. If a tenant context needs to, that is a new grant, decided by the owner.
+- Addendum (tenant selection before login): the API reads `catalog.tenants` through the shared `CatalogDbContext`, on
+  a connection that assumes no tenant role, so as the application login itself (to resolve `X-Tenant` and to refuse a
+  token whose tenant is not active). Every `migrate` run, after the catalog is migrated and under the global lock,
+  grants `ApplicationRole` `USAGE` on `catalog` and column-level `SELECT (id, identifier, status)` on
+  `catalog.tenants`, declared with `AddApplicationRead`; nothing else of the catalog, and nothing when `ApplicationRole`
+  is empty (the migrator's own login owns the tables). As itself, the login therefore reads every tenant's slug and
+  status, not names, plans or subscriptions. That is a guard against mistakes, not a boundary: the login can still
+  `SET ROLE` to a tenant role and from it to the shared role, which reads the whole catalog, as above.
 - Out of scope: dropping roles (deprovisioning), a login per tenant, RLS, hiding `pg_namespace`, revoking writes on
   history tables, PgBouncer.

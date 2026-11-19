@@ -1,5 +1,9 @@
 using System.Net;
 using Microsoft.AspNetCore.Builder;
+using System.Xml.Linq;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
+using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -8,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
 using MyApp.BuildingBlocks.Application.Security;
+using MyApp.BuildingBlocks.Application.Tenancy;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Infrastructure.Database;
 
@@ -42,6 +47,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     };
 
     private bool _realDatabaseCheck;
+    private bool _realTenantCatalog;
     private readonly Dictionary<string, string> _earlySettings = [];
     private readonly List<Action<IServiceCollection>> _services = [];
 
@@ -60,6 +66,16 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     {
         _settings[key] = value;
         _realDatabaseCheck |= string.Equals(key, DatabaseRegistration.ConnectionStringKey, StringComparison.Ordinal);
+        return this;
+    }
+
+    /// <summary>
+    /// Keeps the Access module's catalog-backed <see cref="ITenantCatalog"/>. Without this call a host answers "active" for
+    /// every tenant id and "no tenant" for every slug, so the hosts that sign fake tokens need no catalog rows.
+    /// </summary>
+    public ApiHostFactory WithRealTenantCatalog()
+    {
+        _realTenantCatalog = true;
         return this;
     }
 
@@ -110,6 +126,15 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             // The validation source generator only sees the endpoints of the project that calls AddValidation, so
             // the test project registers its own endpoint types the same way the API does for its own.
             services.AddTestAssemblyValidation();
+            // The security library's AddAuthentication brings Data Protection, whose default key ring lives in the user
+            // profile: on Linux the first host of a run creates the key and logs a warning (no XML encryptor), so a test
+            // asserting "no warning" failed or passed by test order. Test hosts keep their key ring in memory, unencrypted
+            // on purpose (the warning's subject); where the API keeps its keys is the Data Protection task of PLAN.md.
+            services.Configure<KeyManagementOptions>(options =>
+            {
+                options.XmlRepository = new InMemoryXmlRepository();
+                options.XmlEncryptor = new NullXmlEncryptor();
+            });
             services.AddSingleton<IEndpoint, ProblemFixtureEndpoint>();
             // The permission of the fixture endpoint that requires one; a host that starts must know every permission its
             // endpoints require.
@@ -128,6 +153,11 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 });
             }
 
+            if (!_realTenantCatalog)
+            {
+                services.AddScoped<ITenantCatalog, AlwaysActiveTenantCatalog>();
+            }
+
             // First, so it also runs ahead of the platform's own forwarded headers middleware.
             services.Insert(0, ServiceDescriptor.Singleton<IStartupFilter, RemoteAddressStartupFilter>());
             foreach (var configure in _services)
@@ -135,6 +165,14 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 configure(services);
             }
         });
+    }
+
+    // Every tenant is active and no slug leads to a tenant: the answers of a catalog nobody looks into.
+    private sealed class AlwaysActiveTenantCatalog : ITenantCatalog
+    {
+        public Task<Guid?> FindActiveTenantIdAsync(string slug, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
+
+        public Task<bool> IsActiveAsync(Guid tenantId, CancellationToken cancellationToken = default) => Task.FromResult(true);
     }
 
     // The database being up, for the hosts that do not test the database.
@@ -161,5 +199,27 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
                 });
                 next(app);
             };
+    }
+}
+
+// The key ring of one test host, gone with it: no file in the user profile, so no host depends on another's key.
+internal sealed class InMemoryXmlRepository : IXmlRepository
+{
+    private readonly List<XElement> _elements = [];
+
+    public IReadOnlyCollection<XElement> GetAllElements()
+    {
+        lock (_elements)
+        {
+            return [.. _elements.Select(e => new XElement(e))];
+        }
+    }
+
+    public void StoreElement(XElement element, string friendlyName)
+    {
+        lock (_elements)
+        {
+            _elements.Add(new XElement(element));
+        }
     }
 }

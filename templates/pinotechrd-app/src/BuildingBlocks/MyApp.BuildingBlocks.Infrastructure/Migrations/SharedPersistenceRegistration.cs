@@ -75,6 +75,26 @@ public static class SharedPersistenceRegistration
     }
 
     /// <summary>
+    /// Declares that the application's login reads <paramref name="columns"/> of <paramref name="schema"/>.<paramref name="table"/>
+    /// directly, through a shared context (see <see cref="ApplicationRead"/>). The database migrator grants exactly that on
+    /// every run, to <c>Migrator:ApplicationRole</c>; with no application role the application connects with the
+    /// migrator's own login, which owns the tables, and nothing is granted. Declaring the same table again adds its columns.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="schema">The table's schema, a shared schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="columns">The columns, at least one; every name matches <see cref="TenantSchemaName.Pattern"/>.</param>
+    /// <returns>The same service collection, for chaining.</returns>
+    /// <exception cref="ArgumentException">A name is not valid, or no column is given.</exception>
+    public static IServiceCollection AddApplicationRead(this IServiceCollection services, string schema, string table, params string[] columns)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSingleton(new ApplicationRead(schema, table, columns));
+        return services;
+    }
+
+    /// <summary>
     /// Registers <see cref="IDatabaseMigrator"/>, and the <see cref="ITenantMigrator"/> it uses for the tenants. Only the
     /// migrator command registers it: migrations never run at API start. It also adds to the database's start-time
     /// validation a check that a pooled connection string allows at least <see cref="DatabaseMigrator.MinimumPoolSize"/>
@@ -94,7 +114,9 @@ public static class SharedPersistenceRegistration
             provider.GetRequiredService<IServiceScopeFactory>(),
             provider.GetRequiredService<TenantDataSource>(),
             provider.GetServices<ISharedMigrations>(),
-            provider.GetRequiredService<ITenantMigrator>()));
+            provider.GetRequiredService<ITenantMigrator>(),
+            provider.GetServices<ApplicationRead>(),
+            provider.GetRequiredService<IOptions<TenantMigratorOptions>>().Value.ApplicationRole));
         return services;
     }
 

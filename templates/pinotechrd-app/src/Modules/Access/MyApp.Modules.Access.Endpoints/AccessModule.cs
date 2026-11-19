@@ -7,12 +7,15 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application;
 using MyApp.BuildingBlocks.Application.Security;
+using MyApp.BuildingBlocks.Application.Tenancy;
+using MyApp.BuildingBlocks.Infrastructure.Migrations;
 using MyApp.BuildingBlocks.Web;
 using MyApp.BuildingBlocks.Web.Authorization;
 using MyApp.Modules.Access.Application;
 using MyApp.Modules.Access.Application.Security;
 using MyApp.Modules.Access.Endpoints.Security;
 using MyApp.Modules.Access.Infrastructure.Persistence;
+using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
 using MyApp.Modules.Access.Infrastructure.Security;
 using Pinotechrd.Security.Extensions;
 using Pinotechrd.Security.Interfaces;
@@ -58,6 +61,11 @@ public sealed class AccessModule : IModule
         services.AddScoped<IIdentityValidator<AccessUser>, AccessIdentityValidator>();
         services.AddPermissionChecker<SecurityEnginePermissionChecker>(Name);
         services.AddAuthenticatedRequestStep<SecurityTenantContextStep>();
+
+        // The catalog answers which tenant the X-Tenant header names before login, and whether a token's tenant is active.
+        services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
+        services.TryAddScoped<ITenantCatalog, CatalogTenantCatalog>();
+        services.AddAuthenticatedRequestStep<TenantStatusStep>();
 
         services.AddHandlers(AccessApplicationAssembly.Assembly);
 
