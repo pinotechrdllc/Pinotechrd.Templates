@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using MyApp.Api.Tests.Database;
+using MyApp.BuildingBlocks.Infrastructure.DataProtection;
 using MyApp.Migrator.Tests.Support;
 using MyApp.Modules.Access.Infrastructure.Persistence;
 using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
@@ -27,6 +28,15 @@ public class ModelTests(PostgresFixture postgres)
     public void CatalogContextHasNoPendingModelChanges()
     {
         using var context = DesignContexts.Create<CatalogDbContext>();
+
+        Assert.False(context.Database.HasPendingModelChanges());
+    }
+
+    // Breaks when the Data Protection key model changes and no migration of the data_protection schema follows.
+    [Fact]
+    public void DataProtectionKeysContextHasNoPendingModelChanges()
+    {
+        using var context = DesignContexts.Create<DataProtectionKeysDbContext>();
 
         Assert.False(context.Database.HasPendingModelChanges());
     }
