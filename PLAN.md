@@ -128,7 +128,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] An ordered extension point after authentication in the pipeline, for tenant resolution, the per-user limiter and the user and tenant on the log event.
 - [x] A public helper for "running under build-time contract generation" (today private in the database composition), so security settings validated at start do not break the contract generation.
 - [x] The security DbContext uses the one shared data source, not a data source of its own.
-- [x] Wire `Pinotechrd.Security` (`1.2.0-preview.3`) in an `Access` module present in both architectures: `AddPinotechrdSecurity`, the DbContext on `PinotechrdSecurityDbContext` in `search_path` mode on the tenant persistence, the permission checker of `Access` on the library's engine, the request's tenant copied into the library's context; `UseTenantResolution` is not used. See [ADR 0009](docs/adr/0009-access-module-and-security-wiring.md).
+- [x] Wire `Pinotechrd.Security` (`1.2.0-preview.5`) in an `Access` module present in both architectures: `AddPinotechrdSecurity`, the DbContext on `PinotechrdSecurityDbContext` in `search_path` mode on the tenant persistence, the permission checker of `Access` on the library's engine, the request's tenant copied into the library's context; `UseTenantResolution` is not used. See [ADR 0009](docs/adr/0009-access-module-and-security-wiring.md).
 - [x] The `search_path` interceptor tolerates the tenant-less readiness probe, and the tracing filter that matches the text `SELECT 1` no longer hides application queries.
 - [x] Schema per tenant: schema resolver and a connection interceptor that sets `search_path` on one shared data source. No schema in the model or in the migrations, so no model cache key per schema (ADR 0001). With PgBouncer in transaction pooling mode the schema must be set with `SET LOCAL` inside the transaction, or session pooling used.
 - [x] A migration contract outside the web building block, so a migrator does not pull in ASP.NET Core.
@@ -147,11 +147,14 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [x] Make the advisory-lock helper one shared building block: `MigratorBootstrap` carried a copy of the internal `AdvisoryLock` try-lock; it is now public in `BuildingBlocks.Infrastructure/Database`.
 - [x] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] The `Access` module (now in both architectures, ADR 0009): home of the users, roles and permissions endpoints.
-- [ ] Users, roles and permissions endpoints, with per-user allow and deny.
+- [ ] Users, roles and permissions endpoints, with per-user allow and deny. U7 note: deactivating a user through `UpdateUserAsync` revokes the sessions through the store's `RevokeAllForUserAsync`, as `SetUserActiveStatusAsync(id, false)` does.
 - [x] Add the user and tenant (opaque identifiers only) to the request log event and to the trace, after authentication.
 - [x] The API refuses a tenant that is provisioning, suspended or cancelled (status read from the catalog after authentication), so a token for such a tenant never reaches its schema (ADR 0011).
 - [ ] Tenants endpoints: create, activate, suspend.
 - [x] Seeding: first tenant and bootstrap administrator from configuration. Done: `migrate` seeds plans, modules and permissions; `MyApp.Migrator bootstrap` creates the operator tenant and its administrator, the password from the environment or user secrets only. See [ADR 0013](docs/adr/0013-seeding-and-bootstrap.md).
+- [ ] Refuse access tokens of ended sessions (library #63) with a template step once the library exposes the check publicly: `UseTenantResolution`, which does the check (`Jwt.ValidateSecurityStamp`), is not used. record the decision in a new ADR that amends ADR 0009 §5; logout also renews the stamp.
+- [ ] Register a shared `IDistributedCache` and call `ISecurityCacheInvalidator` on role/permission changes.
+- [ ] Two-factor sign-in: EF two-factor attempt store (`AddPinotechrdEfTwoFactorAttemptStore`) and its migration, then the second step of the sign-in; until then `DisabledTwoFactorAttemptStore` fails closed.
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.
 - [ ] Phase review against the quality bar (tokens, application security, multi-tenancy); findings added as tasks.
 
@@ -249,6 +252,6 @@ Tool-neutral base with a Claude Code layer on top. Researched on 2026-11-18; eac
 
 These block the tasks that reference them and are tracked in that repository.
 
-- [ ] Permission cache that can be invalidated across instances (today it is in memory, fifteen minutes per node).
+- [x] Permission cache that can be invalidated across instances: addressed in `1.2.0-preview.4` (the cache is a distributed cache, five minutes, and `ISecurityCacheInvalidator.InvalidateTenantAsync`); the template still has to register a shared cache and call the invalidator (a task in Phase 2).
 - [ ] Raise test coverage above the current 46% before the first stable release.
 - [ ] Publish the stable `1.2.0` the template will reference.

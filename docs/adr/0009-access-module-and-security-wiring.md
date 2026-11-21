@@ -39,7 +39,10 @@ The template needs one place that decides each of these, in both architectures, 
    user's id to every token, so tokens carry `sub`; the library's `id` stays in the token and is never read. A start
    check (`IValidateOptions<ApiIdentityOptions>`) stops the host when the bound value differs from the library's tenant
    claim type, naming both. Rejected: reading `id` as the user claim, because it is not the standard subject claim and a
-   later library version could drop it.
+   later library version could drop it. Registering `AccessIdentityValidator` also turns off the library's check, at
+   sign-in, that the context proves tenant membership (it is skipped when an `IIdentityValidator<TUser>` is registered).
+   Accepted: membership is the per-tenant schema, because the user row exists only in the schema of its tenant, so a user
+   of another tenant is not found by the sign-in's lookup.
 4. Permissions. `SecurityEnginePermissionChecker` is the checker of the module `Access`; `Access.Users.Read` is asked as
    `CanAccessAsync("Access", "Users.Read")`. `AccessSecurityDataProvider` takes the user and the tenant from
    `ICurrentUser` and `ICurrentTenant` (lower-case `D` GUIDs) and reads the role permissions in one query (users, user

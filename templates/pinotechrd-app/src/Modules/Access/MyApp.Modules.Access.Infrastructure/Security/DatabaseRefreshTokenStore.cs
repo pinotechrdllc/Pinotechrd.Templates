@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Application.Tenancy;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
@@ -23,7 +22,7 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// when its first token is saved (<see cref="RefreshTokenOptions.AbsoluteLifetime"/>), and caps every token of it.</item>
 /// <item><see cref="ConsumeAsync"/> is one <c>UPDATE ... RETURNING</c>: of two concurrent calls with one token exactly one
 /// succeeds. When it updates nothing, a second query classifies why in the order of <see cref="IRefreshTokenStore"/>,
-/// and a reused token revokes its family and is logged as a warning (the tenant's id only, never the token).</item>
+/// and a reused token revokes its family and is returned with its user, tenant and family, which the library logs.</item>
 /// <item><see cref="SaveAsync"/> is one <c>INSERT ... SELECT</c> that creates the family on first use. A token saved
 /// into a revoked family is stored revoked; one saved while a revocation commits is still refused by the family's state
 /// when consumed.</item>
@@ -36,12 +35,10 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// <param name="context">The tenant context of the scope.</param>
 /// <param name="currentTenant">The tenant of the scope, the one whose schema the context reads.</param>
 /// <param name="options">The absolute lifetime of a family.</param>
-/// <param name="logger">The logger of a reused token.</param>
-public sealed partial class DatabaseRefreshTokenStore(
+public sealed class DatabaseRefreshTokenStore(
     AccessDbContext context,
     ICurrentTenant currentTenant,
-    IOptions<RefreshTokenOptions> options,
-    ILogger<DatabaseRefreshTokenStore> logger) : IRefreshTokenStore
+    IOptions<RefreshTokenOptions> options) : IRefreshTokenStore
 {
     private const string SaveSql = """
         WITH created AS (
@@ -191,25 +188,30 @@ public sealed partial class DatabaseRefreshTokenStore(
                 : new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.TenantMismatch);
         }
 
-        var connection = await context.Database.OpenTenantConnectionAsync(cancellationToken).ConfigureAwait(false);
+        // Last cancellation point. The consume, the classification and the revocation of a reused token's family ignore
+        // the request token: a client that aborts the request (for example an attacker replaying a stolen token) must not
+        // stop a reuse from being detected and its family revoked.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var connection = await context.Database.OpenTenantConnectionAsync(CancellationToken.None).ConfigureAwait(false);
         await using (var consume = new NpgsqlCommand(ConsumeSql, connection) { Parameters = { HashParameter(hash) } })
         {
-            var reader = await consume.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var reader = await consume.ExecuteReaderAsync(CancellationToken.None).ConfigureAwait(false);
             await using (reader.ConfigureAwait(false))
             {
-                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (await reader.ReadAsync(CancellationToken.None).ConfigureAwait(false))
                 {
                     return new RefreshTokenConsumeResult(
                         RefreshTokenConsumeStatus.Consumed,
                         FormatId(reader.GetGuid(0)),
                         FormatTenant(),
                         FormatId(reader.GetGuid(1)),
-                        await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(2));
+                        await reader.IsDBNullAsync(2, CancellationToken.None).ConfigureAwait(false) ? null : reader.GetString(2));
                 }
             }
         }
 
-        var state = await ReadStateAsync(hash, cancellationToken).ConfigureAwait(false);
+        var state = await ReadStateAsync(hash, CancellationToken.None).ConfigureAwait(false);
         switch (state)
         {
             case null:
@@ -218,11 +220,11 @@ public sealed partial class DatabaseRefreshTokenStore(
                 return new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.Revoked);
             case { Consumed: true }:
                 // Reuse, even when the token has also expired or was revoked on its own: the session may be stolen.
-                await ExecuteAsync(RevokeFamilySql, new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = state.FamilyId }, cancellationToken)
+                await ExecuteAsync(RevokeFamilySql, new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = state.FamilyId }, CancellationToken.None)
                     .ConfigureAwait(false);
-                var tenant = currentTenant.TenantId;
-                LogReuse(logger, tenant);
-                return new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.Reused);
+                // The library logs the reuse (event 4204) from the user, tenant and family returned here.
+                return new RefreshTokenConsumeResult(
+                    RefreshTokenConsumeStatus.Reused, FormatId(state.UserId), FormatTenant(), FormatId(state.FamilyId));
             case { TokenRevoked: true }:
                 return new RefreshTokenConsumeResult(RefreshTokenConsumeStatus.Revoked);
             case { Expired: true }:
@@ -234,17 +236,32 @@ public sealed partial class DatabaseRefreshTokenStore(
     }
 
     /// <inheritdoc />
-    public Task RevokeAsync(string refreshToken, CancellationToken cancellationToken = default) =>
-        string.IsNullOrEmpty(refreshToken)
-            ? Task.CompletedTask
-            : ExecuteAsync(RevokeTokenFamilySql, HashParameter(Hash(refreshToken)), cancellationToken);
+    public async Task RevokeAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(refreshToken))
+        {
+            return;
+        }
+
+        // Last cancellation point: a revoke that started runs to the end, so an abort cannot leave the session alive.
+        cancellationToken.ThrowIfCancellationRequested();
+        await ExecuteAsync(RevokeTokenFamilySql, HashParameter(Hash(refreshToken)), CancellationToken.None).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
-    public Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default) =>
+    public async Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)
+    {
         // Users are GUIDs: any other value owns no token.
-        Guid.TryParse(userId, out var user)
-            ? ExecuteAsync(RevokeUserSql, new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = user }, cancellationToken)
-            : Task.CompletedTask;
+        if (!Guid.TryParse(userId, out var user))
+        {
+            return;
+        }
+
+        // Last cancellation point: a revoke that started runs to the end, so an abort cannot leave sessions alive.
+        cancellationToken.ThrowIfCancellationRequested();
+        await ExecuteAsync(RevokeUserSql, new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = user }, CancellationToken.None)
+            .ConfigureAwait(false);
+    }
 
     private async Task<TokenState?> ReadStateAsync(byte[] hash, CancellationToken cancellationToken)
     {
@@ -292,9 +309,6 @@ public sealed partial class DatabaseRefreshTokenStore(
         DateTimeKind.Local => value.ToUniversalTime(),
         _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
     };
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "A spent refresh token was presented again in tenant {TenantId}; its session is revoked.")]
-    private static partial void LogReuse(ILogger logger, Guid tenantId);
 
     private sealed record TokenState(Guid UserId, Guid FamilyId, bool FamilyRevoked, bool Consumed, bool TokenRevoked, bool Expired);
 }

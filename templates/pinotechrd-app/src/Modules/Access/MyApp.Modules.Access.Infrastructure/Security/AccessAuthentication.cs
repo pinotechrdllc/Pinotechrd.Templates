@@ -20,6 +20,7 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// only the user's and the tenant's identifiers, never an email, a slug or a token.
 /// </summary>
 /// <param name="authManager">The library's auth manager, which reads the tenant from the scope.</param>
+/// <param name="securityManager">The library's security manager, to end the sessions of a user whose password changed.</param>
 /// <param name="userManager">Identity's user manager of the tenant's users.</param>
 /// <param name="context">The tenant context of the scope, for the atomic failed-attempt count.</param>
 /// <param name="refreshTokens">The refresh token store of the scope's tenant.</param>
@@ -28,6 +29,7 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// <param name="logger">The logger.</param>
 public sealed partial class AccessAuthentication(
     IPinotechrdAuthManager<AccessUser> authManager,
+    IPinotechrdSecurityManager<AccessUser, AccessRole> securityManager,
     UserManager<AccessUser> userManager,
     AccessDbContext context,
     IRefreshTokenStore refreshTokens,
@@ -66,7 +68,7 @@ public sealed partial class AccessAuthentication(
 
         // Without a tenant the library still checks the password against a dummy hash, so the answer takes as long.
         var tenant = TenantOrNull();
-        var result = await authManager.LoginAsync(email ?? string.Empty, password ?? string.Empty, Format(tenant)).ConfigureAwait(false);
+        var result = await authManager.LoginAsync(email ?? string.Empty, password ?? string.Empty, Format(tenant), cancellationToken).ConfigureAwait(false);
         if (result is { Succeeded: true, Token: { } token } && Guid.TryParse(result.UserId, out var userId))
         {
             LogLoginSucceeded(logger, userId, tenant);
@@ -88,8 +90,8 @@ public sealed partial class AccessAuthentication(
             return Result.Failure<AuthSession>(InvalidRefreshToken);
         }
 
-        // A spent token presented again is logged by the store, the only place that tells it apart.
-        var result = await authManager.RefreshAsync(refreshToken).ConfigureAwait(false);
+        // A spent token presented again is logged by the library (event 4204), from what the store returns.
+        var result = await authManager.RefreshAsync(refreshToken, cancellationToken).ConfigureAwait(false);
         return result is { Succeeded: true, Token: { } token } && Guid.TryParse(result.UserId, out var userId)
             ? Session(userId, token)
             : Result.Failure<AuthSession>(InvalidRefreshToken);
@@ -105,7 +107,8 @@ public sealed partial class AccessAuthentication(
             return;
         }
 
-        await refreshTokens.RevokeAsync(refreshToken, cancellationToken).ConfigureAwait(false);
+        // The store runs a started revoke to the end; the request's token is not passed, so an abort cannot leave the session alive.
+        await refreshTokens.RevokeAsync(refreshToken, CancellationToken.None).ConfigureAwait(false);
         LogLoggedOut(logger, tenant);
     }
 
@@ -135,7 +138,8 @@ public sealed partial class AccessAuthentication(
             if (changed.Errors.Any(e => e.Code == PasswordMismatchCode))
             {
                 // Counted like a failed sign-in, so a stolen access token cannot guess the password without locking it.
-                await RecordFailedAttemptAsync(user, cancellationToken).ConfigureAwait(false);
+                // Not cancellable: the last cancellation point has passed, and an abort must not skip the count.
+                await RecordFailedAttemptAsync(user, CancellationToken.None).ConfigureAwait(false);
                 return Result.Failure(WrongCurrentPassword);
             }
 
@@ -149,9 +153,18 @@ public sealed partial class AccessAuthentication(
         }
 
         // Every session ends, this one included: the refresh tokens are revoked and the security stamp renewed.
-        await authManager.SignOutAsync(id).ConfigureAwait(false);
+        // The request's token is not passed: the password is already changed, so ending the sessions must not be cancelled.
         var tenant = TenantOrNull();
-        LogPasswordChanged(logger, userId, tenant);
+        if (await securityManager.RevokeUserSessionsAsync(id, CancellationToken.None).ConfigureAwait(false))
+        {
+            LogPasswordChanged(logger, userId, tenant);
+        }
+        else
+        {
+            // The password is changed and Identity renewed the stamp: the request still succeeds, but the revocation is not confirmed.
+            LogSessionsNotEnded(logger, userId, tenant);
+        }
+
         return Result.Success();
     }
 
@@ -220,4 +233,7 @@ public sealed partial class AccessAuthentication(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Password changed for user {UserId} in tenant {TenantId}; every session ended.")]
     private static partial void LogPasswordChanged(ILogger logger, Guid userId, Guid? tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Password changed for user {UserId} in tenant {TenantId}, but ending every session was not confirmed.")]
+    private static partial void LogSessionsNotEnded(ILogger logger, Guid userId, Guid? tenantId);
 }

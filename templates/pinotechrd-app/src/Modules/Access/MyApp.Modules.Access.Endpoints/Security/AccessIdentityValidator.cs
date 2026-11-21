@@ -14,7 +14,7 @@ namespace MyApp.Modules.Access.Endpoints.Security;
 /// <param name="identity">The claim types of the API.</param>
 internal sealed class AccessIdentityValidator(IOptions<ApiIdentityOptions> identity) : IIdentityValidator<AccessUser>
 {
-    public Task<IdentityValidationResult> ValidateAsync(AccessUser user, string tenantId)
+    public Task<IdentityValidationResult> ValidateAsync(AccessUser user, string tenantId, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(user);
 

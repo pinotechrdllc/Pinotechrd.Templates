@@ -23,6 +23,6 @@ public sealed class SecurityEnginePermissionChecker(ISecurityEngine engine) : IP
         }
 
         var dot = permission.IndexOf('.', StringComparison.Ordinal);
-        return await engine.CanAccessAsync(permission[..dot], permission[(dot + 1)..]).ConfigureAwait(false);
+        return await engine.CanAccessAsync(permission[..dot], permission[(dot + 1)..], cancellationToken).ConfigureAwait(false);
     }
 }
