@@ -220,7 +220,7 @@ public class RefreshTokenPurgeServiceTests(PostgresFixture postgres)
     {
         var missing = new NpgsqlConnectionStringBuilder(await postgres.CreateDatabaseAsync()) { Database = "missing_" + Guid.NewGuid().ToString("N") };
         using var factory = AccessHost.For(missing.ConnectionString)
-            .WithSetting(ApiHostFactory.PurgeEnabledKey, "true")
+            .WithSetting(ApiHostBase.PurgeEnabledKey, "true")
             .WithSetting(Prefix + "InitialDelay", "00:00:00")
             .WithSetting(Prefix + "Interval", "00:01:00");
         var logs = factory.CaptureLogs();
@@ -422,7 +422,7 @@ public class RefreshTokenPurgeServiceTests(PostgresFixture postgres)
     [InlineData("InitialDelay", "01:00:01")]
     public void WhenDisabledAnOutOfRangeScheduleSettingStillStopsTheHost(string property, string value)
     {
-        using var factory = AccessHost.WithoutDatabase().WithSetting(ApiHostFactory.PurgeEnabledKey, "false").WithSetting(Prefix + property, value);
+        using var factory = AccessHost.WithoutDatabase().WithSetting(ApiHostBase.PurgeEnabledKey, "false").WithSetting(Prefix + property, value);
 
         StartupFailure.AssertFailsNaming(factory, Prefix + property);
     }
