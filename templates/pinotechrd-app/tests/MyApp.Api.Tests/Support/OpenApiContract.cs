@@ -9,16 +9,73 @@ internal static class OpenApiContract
 
     public const string ContractFileName = "openapi.v1.json";
 
-    public static string ContractPath => SolutionLocator.ContractFile(ContractFileName);
+    /// <summary>The architectures the template source holds, each with its own committed contract.</summary>
+    public static readonly string[] SourceArchitectures = ["clean", "modular"];
+
+    // The MSBuild property that picks one architecture of the template source. Built from parts so that its name never
+    // appears in the text of a generated project, where it does not exist (the template harness checks for it).
+    private static readonly string ArchitectureProperty = "Contract" + "Architecture";
+
+    /// <summary>The committed contract of one architecture of the template source.</summary>
+    public static string ArchitectureContractFileName(string architecture) => $"openapi.v1.{architecture}.json";
+
+    /// <summary>
+    /// Every committed contract file: <c>contract/openapi.v1.json</c> in a generated project, one file per architecture in
+    /// the template source. Rules about the files themselves apply to each of them.
+    /// </summary>
+    public static IReadOnlyList<string> ContractPaths => SolutionLocator.IsTemplateSource
+        ? [.. SourceArchitectures.Select(a => SolutionLocator.ContractFile(ArchitectureContractFileName(a)))]
+        : [SolutionLocator.ContractFile(ContractFileName)];
+
+    /// <summary>
+    /// The committed contract that describes the host the tests run. In a generated project it is
+    /// <c>contract/openapi.v1.json</c>. The template source hosts both architectures at once, so one file stands for that
+    /// host only while the architecture files are byte-identical; when they differ the calling test is skipped, because
+    /// each architecture is then compared with its own build by the template harness.
+    /// </summary>
+    public static string ContractPath
+    {
+        get
+        {
+            if (!SolutionLocator.IsTemplateSource)
+            {
+                return SolutionLocator.ContractFile(ContractFileName);
+            }
+
+            var paths = ContractPaths;
+            var first = File.ReadAllBytes(paths[0]);
+            var differing = paths.Skip(1).Where(p => !File.ReadAllBytes(p).AsSpan().SequenceEqual(first)).Select(Path.GetFileName).ToArray();
+            if (differing.Length > 0)
+            {
+                Assert.Skip($"In the template source the host composes both architectures, and contract/{Path.GetFileName(paths[0])} "
+                    + $"differs from contract/{string.Join(", contract/", differing)}, so no single file describes it. Each architecture "
+                    + $"is checked against its own build by scripts/test-template.ps1; regenerate one with `{RegenerateCommand}`.");
+            }
+
+            return paths[0];
+        }
+    }
+
+    /// <summary>The name of the committed contract as messages give it.</summary>
+    public static string ContractDisplayName => SolutionLocator.IsTemplateSource
+        ? string.Join(" and ", SourceArchitectures.Select(a => "contract/" + ArchitectureContractFileName(a)))
+        : "contract/" + ContractFileName;
 
     public static string ApiProjectName => ApiAssembly.Assembly.GetName().Name!;
 
-    /// <summary>The command the README gives to regenerate the committed contract.</summary>
-    public static string RegenerateCommand => $"dotnet build src/{ApiProjectName} -p:UpdateContract=true";
+    /// <summary>
+    /// The command the README gives to regenerate the committed contract. The template source needs the architecture too,
+    /// and the command then writes that architecture's file.
+    /// </summary>
+    public static string RegenerateCommand => $"dotnet build src/{ApiProjectName} -p:UpdateContract=true"
+        + (SolutionLocator.IsTemplateSource ? $" -p:{ArchitectureProperty}=<{string.Join('|', SourceArchitectures)}>" : string.Empty);
 
     public static JsonObject Parse(string json) => JsonNode.Parse(json)!.AsObject();
 
     public static JsonObject ReadCommitted() => Parse(File.ReadAllText(ContractPath));
+
+    /// <summary>Reads one committed contract file.</summary>
+    public static JsonObject Read(string path) => Parse(File.ReadAllText(path));
 
     public static JsonObject Paths(JsonObject document) => document["paths"]!.AsObject();
 
@@ -98,7 +155,7 @@ internal static class OpenApiContract
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal);
 
-        return $"The API document served by the application differs from contract/{ContractFileName}. "
+        return $"The API document served by the application differs from {ContractDisplayName}. "
             + $"Affected: [{string.Join(", ", affected)}]. "
             + $"Differences (contract vs served): {string.Join("; ", differences.Take(30))}"
             + (differences.Count > 30 ? $"; and {differences.Count - 30} more" : string.Empty)

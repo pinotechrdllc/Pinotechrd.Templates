@@ -13,7 +13,9 @@ public class ContractIsCurrentTests : IClassFixture<ContractIsCurrentTests.RealA
 
     public ContractIsCurrentTests(RealApiFactory factory) => _factory = factory;
 
-    // Breaks when an endpoint, request, response or schema changes without regenerating contract/openapi.v1.json.
+    // Breaks when an endpoint, request, response or schema changes without regenerating contract/openapi.v1.json. In the
+    // template source the host composes both architectures, so it is compared with both architecture files while they are
+    // byte-identical, and skipped otherwise (OpenApiContract.ContractPath says why).
     [Fact]
     public async Task ServedDocumentEqualsTheCommittedContract()
     {

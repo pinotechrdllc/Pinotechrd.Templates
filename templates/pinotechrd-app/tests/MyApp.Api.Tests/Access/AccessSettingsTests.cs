@@ -143,6 +143,11 @@ public class AccessSettingsTests
     [Fact]
     public async Task TheContractIsGeneratedWithNoConfigurationAndEqualsTheCommittedFile()
     {
+        // The template source generates a contract only for one architecture at a time, which rebuilds the host this test
+        // runs on; the template harness runs that generation for each architecture, and this test in every output.
+        Assert.SkipWhen(SolutionLocator.IsTemplateSource, "The template source generates its contracts per architecture: "
+            + $"`{OpenApiContract.RegenerateCommand}`, checked by scripts/test-template.ps1.");
+
         var root = SolutionLocator.SolutionRoot();
         var host = Path.Combine(root, "src", HostName(), HostName() + ".csproj");
         var scratch = Directory.CreateTempSubdirectory("access-contract-").FullName;

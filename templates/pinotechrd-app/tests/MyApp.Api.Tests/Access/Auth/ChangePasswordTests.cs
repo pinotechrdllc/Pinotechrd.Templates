@@ -217,14 +217,21 @@ public class ChangePasswordTests(PostgresFixture postgres)
         await AuthScenarios.SignInAsync(client, AccessWorld.SlugA, AuthScenarios.Email, NewPassword);
     }
 
-    // Breaks when the committed contract does not tell a client that the change of password can answer 409.
+    // Breaks when a committed contract does not tell a client that the change of password can answer 409. In the
+    // template source it checks the file of each architecture.
     [Fact]
     public void TheContractDeclaresConflictOnChangePassword()
     {
-        var document = OpenApiContract.ReadCommitted();
+        var paths = OpenApiContract.ContractPaths;
+        Assert.NotEmpty(paths);
 
-        var operation = document["paths"]![AuthRequests.ChangePassword]!["post"]!.AsObject();
+        foreach (var path in paths)
+        {
+            var operation = OpenApiContract.Paths(OpenApiContract.Read(path))[AuthRequests.ChangePassword]?["post"]?.AsObject();
 
-        Assert.NotNull(OpenApiContract.ResponseSchema(operation, "409", OpenApiContract.ProblemJson));
+            Assert.True(operation is not null, $"{Path.GetFileName(path)} has no POST {AuthRequests.ChangePassword}.");
+            Assert.True(OpenApiContract.ResponseSchema(operation, "409", OpenApiContract.ProblemJson) is not null,
+                $"{Path.GetFileName(path)}: POST {AuthRequests.ChangePassword} declares no 409 problem+json response.");
+        }
     }
 }

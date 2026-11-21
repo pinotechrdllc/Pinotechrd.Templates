@@ -87,19 +87,30 @@
     "modular": {
       "type": "computed",
       "value": "(architecture == \"modular\")"
+    },
+    "templateSource": {
+      "type": "computed",
+      "value": "false"
     }
   },
   "sources": [
     {
       "modifiers": [
         {
+          "exclude": [
+            "tests/MyApp.Api.Tests/Contract/TemplateSourceContractTests.cs"
+          ]
+        },
+        {
           "condition": "(clean)",
           "exclude": [
             "src/Modules/MyModule/**",
             "src/MyApp.Api/BusinessComposition.Modular.cs",
+            "contract/openapi.v1.modular.json",
             "tests/MyApp.Modules.MyModule.Tests/**",
             "tests/MyApp.Api.Tests/Architecture/Modular/**"
-          ]
+          ],
+          "rename": { "contract/openapi.v1.clean.json": "contract/openapi.v1.json" }
         },
         {
           "condition": "(modular)",
@@ -110,9 +121,11 @@
             "src/MyApp.Application/**",
             "src/MyApp.Infrastructure/**",
             "src/MyApp.Api/BusinessComposition.Clean.cs",
+            "contract/openapi.v1.clean.json",
             "tests/MyApp.Domain.Tests/**",
             "tests/MyApp.Api.Tests/Architecture/Clean/**"
-          ]
+          ],
+          "rename": { "contract/openapi.v1.modular.json": "contract/openapi.v1.json" }
         }
       ]
     }
