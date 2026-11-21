@@ -66,6 +66,8 @@ public sealed class AccessModule : IModule
         // The catalog answers which tenant the X-Tenant header names before login, and whether a token's tenant is active.
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
         services.TryAddScoped<ITenantCatalog, CatalogTenantCatalog>();
+        // The tenant job runner (the refresh token purge) lists the in-service tenants through it; it reads the same columns.
+        services.TryAddScoped<ITenantDirectory, CatalogTenantDirectory>();
         services.AddAuthenticatedRequestStep<TenantStatusStep>();
 
         // The auth endpoints (Auth/) work through this port, never through the library's free-text results.
@@ -90,7 +92,7 @@ public sealed class AccessModule : IModule
         services.AddPinotechrdSecurity<AccessDbContext, AccessUser, AccessRole>(
             security => security.Tenancy.ClaimType = identity.TenantIdClaimType);
         DecorateSecurityStore(services);
-        ReplaceRefreshTokenStore(services);
+        ReplaceRefreshTokenStore(services, context.IsGeneratingApiDocument);
         ReplaceTwoFactorAttemptStore(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ApiIdentityOptions>, TenantClaimTypeValidator>());
 
@@ -127,7 +129,7 @@ public sealed class AccessModule : IModule
     // The library's in-memory store loses every session on restart and is not shared between instances: the tenant's
     // tables replace it, scoped like their context (the library's auth manager is scoped too). The absolute lifetime is
     // validated at start against the library's sliding one.
-    private static void ReplaceRefreshTokenStore(IServiceCollection services)
+    private static void ReplaceRefreshTokenStore(IServiceCollection services, bool isGeneratingApiDocument)
     {
         services.RemoveAll<IRefreshTokenStore>();
         services.AddScoped<IRefreshTokenStore, DatabaseRefreshTokenStore>();
@@ -140,6 +142,11 @@ public sealed class AccessModule : IModule
             .BindConfiguration(RefreshTokenPurgeOptions.SectionName)
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RefreshTokenPurgeOptions>, RefreshTokenPurgeOptionsValidator>());
+        // Not in the contract generation, which runs no database; the service returns at once when Enabled is false.
+        if (!isGeneratingApiDocument)
+        {
+            services.AddHostedService<RefreshTokenPurgeService>();
+        }
     }
 
     // The engine reads the per-user overrides from ISecurityStore: the library's registration is wrapped so they follow the

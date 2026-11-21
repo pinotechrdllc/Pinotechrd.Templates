@@ -39,7 +39,8 @@ public static class AccessPersistenceRegistration
     /// Registers the shared catalog context <see cref="CatalogDbContext"/> (<c>AddSharedDbContext</c> in
     /// <see cref="CatalogDbContext.Schema"/>), the <see cref="ITenantDirectory"/> that lists the catalog's tenants and the
     /// <see cref="ITenantProvisioner"/>, which needs the tenant migrator (<c>AddDatabaseMigrator</c>). Only the migrator calls
-    /// it. The API registers the catalog context alone, for <see cref="CatalogTenantCatalog"/>, and reads only the columns
+    /// it. The API registers the catalog context, <see cref="CatalogTenantCatalog"/> and the <see cref="ITenantDirectory"/>
+    /// (for the tenant job runner) without the provisioner, and reads only the columns
     /// declared here with <c>AddApplicationRead</c> (<c>catalog.tenants</c>: id, identifier, status), which the migrator
     /// grants the application's login on every run.
     /// </summary>

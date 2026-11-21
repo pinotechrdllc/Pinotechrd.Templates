@@ -173,6 +173,135 @@ public class TenancyDependencyTests
         Assert.False(ReferencesType(tests, typeof(TenancyDependencyTests)));
     }
 
+    // Background work for tenants goes through the job runner, which takes the tenants from the directory: business code
+    // supplies the work and never the tenant, so it cannot run work as a tenant it chose.
+    // Breaks when a public member of ITenantJobRunner takes a tenant id: a Guid, Guid? or string parameter (a tenant id or
+    // its text form; alone or inside a collection, tuple or other generic), or a delegate parameter whose inputs include
+    // one (Func<Guid, ...>, Func<string, ...>).
+    [Fact]
+    public void NoPublicMemberOfTheTenantJobRunnerTakesATenantId()
+    {
+        ReferenceRules.AssertNone(TenantIdParameters(typeof(ITenantJobRunner)));
+    }
+
+    // Breaks when a public type of the infrastructure building block's tenancy namespace (other than the initializer itself)
+    // gains a way to run caller-supplied work as a caller-chosen tenant: a public method or constructor that takes a delegate
+    // together with a tenant id (a Guid or Guid?), or a delegate whose inputs include a tenant id (a Guid, Guid? or string).
+    // Types that only name a tenant (the schema and role names, the migrator, the result records) take no work and are not
+    // caught. A string beside the work is not taken for a tenant id here: the registrations take a module name and a
+    // configuration callback (AddTenantDbContext, UseTenantPersistence); on the runner itself a string is refused.
+    [Fact]
+    public void NoPublicTypeOfTheTenancyNamespaceRunsWorkForACallerChosenTenant()
+    {
+        ReferenceRules.AssertNone([.. TenancyPublicTypes().SelectMany(TenantChoosingWorkMembers)]);
+    }
+
+    // Guards the two rules above against being vacuous: the scan covers the runner (and the namespace's other public types,
+    // not the initializer), the runner really has a delegate parameter the checker inspects, and the checkers flag the
+    // shapes they forbid (a tenant id beside the work, a tenant id given to the work) while passing the runner's own shape.
+    [Fact]
+    public void TheTenantIdCheckersFlagAHypotheticalPerTenantRunnerAndPassTheRunnersShape()
+    {
+        var scanned = TenancyPublicTypes();
+        Assert.Contains(typeof(ITenantJobRunner), scanned);
+        Assert.Contains(typeof(ITenantMigrator), scanned);
+        Assert.DoesNotContain(typeof(ICurrentTenantInitializer), scanned);
+        Assert.Contains(
+            PublicMembers(typeof(ITenantJobRunner)).SelectMany(m => m.GetParameters()),
+            p => typeof(Delegate).IsAssignableFrom(p.ParameterType));
+
+        var choosing = TenantIdParameters(typeof(IHypotheticalTenantRunner));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.RunForTenantAsync), StringComparison.Ordinal));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.RunForTenantsAsync), StringComparison.Ordinal));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.ForEachWithIdAsync), StringComparison.Ordinal));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.RunForOptionalTenantAsync), StringComparison.Ordinal));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.RunForTenantTextAsync), StringComparison.Ordinal));
+        Assert.Contains(choosing, v => v.Contains(nameof(IHypotheticalTenantRunner.ForEachWithTextIdAsync), StringComparison.Ordinal));
+        var work = TenantChoosingWorkMembers(typeof(IHypotheticalTenantRunner)).ToList();
+        // Every shape but the string beside the work, which the namespace-wide rule leaves to the runner's own rule.
+        Assert.Equal(5, work.Count);
+        Assert.DoesNotContain(work, v => v.Contains(nameof(IHypotheticalTenantRunner.RunForTenantTextAsync), StringComparison.Ordinal));
+
+        Assert.Empty(TenantIdParameters(typeof(ICompliantTenantRunner)));
+        Assert.Empty(TenantChoosingWorkMembers(typeof(ICompliantTenantRunner)));
+        // A type that only names a tenant, with no work, is not mistaken for a runner.
+        Assert.NotEmpty(TenantIdParameters(typeof(ITenantMigrator)));
+        Assert.Empty(TenantChoosingWorkMembers(typeof(ITenantMigrator)));
+    }
+
+    // The shapes the rules forbid, for the guard above; never implemented.
+    private interface IHypotheticalTenantRunner
+    {
+        Task RunForTenantAsync(Guid tenantId, Func<IServiceProvider, CancellationToken, Task> work, CancellationToken cancellationToken);
+
+        Task RunForTenantsAsync(IReadOnlyList<Guid> tenantIds, Func<IServiceProvider, CancellationToken, Task> work, CancellationToken cancellationToken);
+
+        Task ForEachWithIdAsync(Func<Guid, IServiceProvider, CancellationToken, Task> work, CancellationToken cancellationToken);
+
+        Task RunForOptionalTenantAsync(Guid? tenantId, Action<IServiceProvider> work);
+
+        Task RunForTenantTextAsync(string tenantId, Func<IServiceProvider, CancellationToken, Task> work, CancellationToken cancellationToken);
+
+        Task ForEachWithTextIdAsync(Func<string, IServiceProvider, CancellationToken, Task> work, CancellationToken cancellationToken);
+    }
+
+    // The runner's own shape, for the guard above; never implemented.
+    private interface ICompliantTenantRunner
+    {
+        Task<IReadOnlyList<TenantJobOutcome<T>>> ForEachTenantAsync<T>(Func<IServiceProvider, CancellationToken, Task<T>> work, CancellationToken cancellationToken);
+    }
+
+    private static List<Type> TenancyPublicTypes() =>
+        [.. ReferenceRules.BuildingBlocksInfrastructure.GetExportedTypes()
+            .Where(t => t.Namespace == typeof(ITenantJobRunner).Namespace && t != typeof(ICurrentTenantInitializer))];
+
+    private static IEnumerable<MethodBase> PublicMembers(Type type) =>
+        type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Cast<MethodBase>()
+            .Concat(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+
+    private static List<string> TenantIdParameters(Type type) =>
+        [.. PublicMembers(type)
+            .SelectMany(m => m.GetParameters().Where(p => TakesTenantId(p.ParameterType, strings: true))
+                .Select(p => $"{type.FullName}.{m.Name} takes a tenant id: parameter '{p.Name}' ({p.ParameterType})."))];
+
+    private static IEnumerable<string> TenantChoosingWorkMembers(Type type) =>
+        PublicMembers(type)
+            .Where(m =>
+            {
+                var parameters = m.GetParameters();
+                var delegates = parameters.Where(p => IsDelegate(p.ParameterType)).ToList();
+                return delegates.Any(p => TakesTenantId(p.ParameterType, strings: true))
+                    || (delegates.Count > 0 && parameters.Any(p => !IsDelegate(p.ParameterType) && TakesTenantId(p.ParameterType, strings: false)));
+            })
+            .Select(m => $"{type.FullName}.{m.Name} runs work for a tenant its caller names.");
+
+    private static bool IsDelegate(Type type) => typeof(Delegate).IsAssignableFrom(type);
+
+    // A Guid or Guid? (and, with strings, a string: a tenant id in text form) anywhere in the type (an element, a generic
+    // argument), or, for a delegate, in one of its inputs, where a string always counts. What a delegate returns is not an
+    // input, and a generic parameter (T) is not a tenant id. Only parameters are checked: a member that returns a string
+    // (TenantSchemaName.For, TenantRoleName.For) is not caught for that.
+    private static bool TakesTenantId(Type type, bool strings)
+    {
+        if (type.HasElementType)
+        {
+            return TakesTenantId(type.GetElementType()!, strings);
+        }
+
+        if (type == typeof(Guid) || (strings && type == typeof(string)))
+        {
+            return true;
+        }
+
+        if (IsDelegate(type) && type != typeof(Delegate) && type != typeof(MulticastDelegate))
+        {
+            return type.GetMethod("Invoke")!.GetParameters().Any(p => TakesTenantId(p.ParameterType, strings: true));
+        }
+
+        return type.IsGenericType && type.GetGenericArguments().Any(a => TakesTenantId(a, strings));
+    }
+
     private static bool ReferencesType(string assemblyPath, Type type)
     {
         using var stream = File.OpenRead(assemblyPath);

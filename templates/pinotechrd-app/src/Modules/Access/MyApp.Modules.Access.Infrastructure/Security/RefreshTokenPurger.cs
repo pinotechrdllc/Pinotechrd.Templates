@@ -74,7 +74,15 @@ public sealed partial class RefreshTokenPurger(
     /// <returns>How many families were deleted (their tokens are not counted).</returns>
     /// <exception cref="InvalidOperationException">The scope has no current tenant.</exception>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
-    public async Task<int> PurgeCurrentTenantAsync(CancellationToken cancellationToken = default)
+    public async Task<int> PurgeCurrentTenantAsync(CancellationToken cancellationToken = default) =>
+        (await PurgeAsync(cancellationToken).ConfigureAwait(false)).Deleted;
+
+    /// <summary>Purges the tenant of the scope, batch by batch, and tells whether another instance's advisory lock stopped it.</summary>
+    /// <param name="cancellationToken">Cancels the purge; the batch in flight rolls back.</param>
+    /// <returns>How many families were deleted, and whether a batch found the tenant's lock held.</returns>
+    /// <exception cref="InvalidOperationException">The scope has no current tenant.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public async Task<RefreshTokenPurgeResult> PurgeAsync(CancellationToken cancellationToken = default)
     {
         var settings = options.Value;
         var connection = await context.Database.OpenTenantConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -83,6 +91,7 @@ public sealed partial class RefreshTokenPurger(
         var schema = TenantSchemaName.For(currentTenant.TenantId);
 
         var total = 0;
+        var lockSkipped = false;
         for (var batch = 0; batch < settings.MaxBatchesPerTenant; batch++)
         {
             int? deleted;
@@ -106,6 +115,7 @@ public sealed partial class RefreshTokenPurger(
 
             if (deleted is null)
             {
+                lockSkipped = true;
                 break;
             }
 
@@ -121,7 +131,7 @@ public sealed partial class RefreshTokenPurger(
             LogPurged(logger, currentTenant.TenantId, total);
         }
 
-        return total;
+        return new RefreshTokenPurgeResult(total, lockSkipped);
     }
 
     // Null when another instance holds the tenant's lock.
@@ -209,3 +219,8 @@ public sealed partial class RefreshTokenPurger(
     [LoggerMessage(Level = LogLevel.Information, Message = "Purged {Count} expired or revoked refresh token families in tenant {TenantId}.")]
     private static partial void LogPurged(ILogger logger, Guid tenantId, int count);
 }
+
+/// <summary>The outcome of <see cref="RefreshTokenPurger.PurgeAsync"/>.</summary>
+/// <param name="Deleted">How many families were deleted (their tokens are not counted).</param>
+/// <param name="LockSkipped">Whether a batch found the tenant's advisory lock held by another session and stopped.</param>
+public sealed record RefreshTokenPurgeResult(int Deleted, bool LockSkipped);

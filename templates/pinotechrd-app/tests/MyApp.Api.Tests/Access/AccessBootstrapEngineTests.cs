@@ -78,7 +78,7 @@ public class AccessBootstrapEngineTests(PostgresFixture postgres)
 
     // The built migrator, run as its own process (it is a second composition root and not a reference of the host's tests);
     // the password goes in its environment, as the command requires. Output is standard output and standard error together.
-    private static async Task<(int Exit, string Output)> RunMigratorAsync(string? password, string[] arguments)
+    internal static async Task<(int Exit, string Output)> RunMigratorAsync(string? password, string[] arguments)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var dll = Path.Combine(SolutionLocator.SolutionRoot(), "src", "MyApp.Migrator", "bin", configuration, "net10.0", "MyApp.Migrator.dll");

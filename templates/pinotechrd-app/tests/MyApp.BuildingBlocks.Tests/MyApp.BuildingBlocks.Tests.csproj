@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\MyApp.BuildingBlocks.Domain\MyApp.BuildingBlocks.Domain.csproj" />
     <ProjectReference Include="..\..\src\BuildingBlocks\MyApp.BuildingBlocks.Application\MyApp.BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\MyApp.BuildingBlocks.Infrastructure\MyApp.BuildingBlocks.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

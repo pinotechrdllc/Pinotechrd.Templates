@@ -116,6 +116,8 @@ public class ContractIsCurrentTests : IClassFixture<ContractIsCurrentTests.RealA
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development)
                 // A valid connection string that is never opened: the document needs the services, not a database.
-                .UseSetting(MyApp.BuildingBlocks.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString);
+                .UseSetting(MyApp.BuildingBlocks.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString)
+                // The purge service would try the placeholder database within a minute: it does not change the document.
+                .UseSetting(ApiHostFactory.PurgeEnabledKey, "false");
     }
 }

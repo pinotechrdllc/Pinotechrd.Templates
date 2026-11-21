@@ -15,6 +15,16 @@ public sealed class ModuleContext
     /// <param name="configuration">The configuration of the host.</param>
     /// <param name="environment">The environment of the host.</param>
     public ModuleContext(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
+        : this(services, configuration, environment, OpenApi.ApiDocumentGeneration.IsRunning)
+    {
+    }
+
+    /// <summary>Creates the context of a module with the contract generation state given explicitly, not read from the entry assembly.</summary>
+    /// <param name="services">The service collection of the host.</param>
+    /// <param name="configuration">The configuration of the host.</param>
+    /// <param name="environment">The environment of the host.</param>
+    /// <param name="isGeneratingApiDocument">Whether the host runs for the build-time contract generation.</param>
+    public ModuleContext(IServiceCollection services, IConfiguration configuration, IHostEnvironment environment, bool isGeneratingApiDocument)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -23,7 +33,7 @@ public sealed class ModuleContext
         Services = services;
         Configuration = configuration;
         Environment = environment;
-        IsGeneratingApiDocument = OpenApi.ApiDocumentGeneration.IsRunning;
+        IsGeneratingApiDocument = isGeneratingApiDocument;
     }
 
     /// <summary>Gets the service collection of the host, where the module registers its services.</summary>
@@ -41,7 +51,8 @@ public sealed class ModuleContext
     /// <summary>
     /// Gets a value indicating whether the host runs for the build-time contract generation, with no configuration and
     /// no secrets (see <see cref="OpenApi.ApiDocumentGeneration"/>). A module skips there the start-time validation of a
-    /// setting that needs a secret, and still registers every service.
+    /// setting that needs a secret, and still registers every service the module needs for the document; it may leave out
+    /// hosted services.
     /// </summary>
     public bool IsGeneratingApiDocument { get; }
 }

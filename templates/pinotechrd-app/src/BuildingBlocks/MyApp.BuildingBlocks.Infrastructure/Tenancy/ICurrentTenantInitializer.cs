@@ -6,7 +6,8 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// Sets the tenant of the current scope (see <see cref="ICurrentTenant"/>). It lives in the infrastructure building
 /// block, not next to <see cref="ICurrentTenant"/>, so business code can read the tenant but never choose it: only the
 /// code that knows the tenant from a trusted source calls it, once per scope (the request pipeline after authentication,
-/// a job runner, the migrator).
+/// the <see cref="ITenantJobRunner"/>, the migrator). Business code that needs per-tenant background work asks the
+/// <see cref="ITenantJobRunner"/>; it never calls this.
 /// </summary>
 public interface ICurrentTenantInitializer
 {
