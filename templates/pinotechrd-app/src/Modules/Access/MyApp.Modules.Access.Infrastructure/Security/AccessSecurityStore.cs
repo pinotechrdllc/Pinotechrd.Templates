@@ -18,23 +18,28 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 public sealed class AccessSecurityStore(ISecurityStore inner, AccessDbContext db) : ISecurityStore
 {
     /// <inheritdoc />
-    public Task<bool> IsSubscriptionActiveAsync(string tenantId) => inner.IsSubscriptionActiveAsync(tenantId);
+    public Task<bool> IsSubscriptionActiveAsync(string tenantId, CancellationToken cancellationToken = default) =>
+        inner.IsSubscriptionActiveAsync(tenantId, cancellationToken);
 
     /// <inheritdoc />
-    public Task<bool> IsModuleActiveAsync(string tenantId, string moduleCode) => inner.IsModuleActiveAsync(tenantId, moduleCode);
+    public Task<bool> IsModuleActiveAsync(string tenantId, string moduleCode, CancellationToken cancellationToken = default) =>
+        inner.IsModuleActiveAsync(tenantId, moduleCode, cancellationToken);
 
     /// <inheritdoc />
-    public Task<IEnumerable<string>> GetActiveModuleCodesAsync(string tenantId) => inner.GetActiveModuleCodesAsync(tenantId);
+    public Task<IEnumerable<string>> GetActiveModuleCodesAsync(string tenantId, CancellationToken cancellationToken = default) =>
+        inner.GetActiveModuleCodesAsync(tenantId, cancellationToken);
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<SecurityModule>> GetActiveCatalogAsync(string tenantId) => inner.GetActiveCatalogAsync(tenantId);
+    public Task<IReadOnlyList<SecurityModule>> GetActiveCatalogAsync(string tenantId, CancellationToken cancellationToken = default) =>
+        inner.GetActiveCatalogAsync(tenantId, cancellationToken);
 
     /// <summary>
     /// The allow and deny overrides of an active user, on active permissions of active modules, in one query.
     /// </summary>
     /// <param name="userId">The user's identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The overrides; empty when the id is not a GUID or the user is inactive.</returns>
-    public async Task<IReadOnlyList<UserPermissionOverride>> GetUserOverridesAsync(string userId)
+    public async Task<IReadOnlyList<UserPermissionOverride>> GetUserOverridesAsync(string userId, CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(userId, out var id))
         {
@@ -49,7 +54,7 @@ public sealed class AccessSecurityStore(ISecurityStore inner, AccessDbContext db
                             && row.Permission.Module.IsActive
                       select new UserPermissionOverride(row.Permission.Code, row.AccessType))
             .AsNoTracking()
-            .ToListAsync()
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 }

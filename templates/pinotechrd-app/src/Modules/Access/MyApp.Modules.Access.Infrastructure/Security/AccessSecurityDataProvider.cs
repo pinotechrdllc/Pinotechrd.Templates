@@ -25,7 +25,7 @@ public sealed class AccessSecurityDataProvider(ICurrentUser currentUser, ICurren
     public string? GetCurrentTenantId() => currentTenant.IsSet ? currentTenant.TenantId.ToString("D") : null;
 
     /// <inheritdoc />
-    public async Task<IEnumerable<string>> GetUserRolesAsync(string userId)
+    public async Task<IEnumerable<string>> GetUserRolesAsync(string userId, CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(userId, out var id))
         {
@@ -37,7 +37,7 @@ public sealed class AccessSecurityDataProvider(ICurrentUser currentUser, ICurren
                       where userRole.UserId == id && role.Name != null
                       select role.Name!)
             .AsNoTracking()
-            .ToListAsync()
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -47,8 +47,9 @@ public sealed class AccessSecurityDataProvider(ICurrentUser currentUser, ICurren
     /// denies.
     /// </summary>
     /// <param name="userId">The user's identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The permission codes, each once.</returns>
-    public async Task<IEnumerable<string>> GetUserPermissionsAsync(string userId)
+    public async Task<IEnumerable<string>> GetUserPermissionsAsync(string userId, CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(userId, out var id))
         {
@@ -65,7 +66,7 @@ public sealed class AccessSecurityDataProvider(ICurrentUser currentUser, ICurren
                       select rolePermission.Permission.Code)
             .Distinct()
             .AsNoTracking()
-            .ToListAsync()
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 }

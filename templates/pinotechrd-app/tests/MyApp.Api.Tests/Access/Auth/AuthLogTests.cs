@@ -17,11 +17,11 @@ public partial class AuthLogTests(PostgresFixture postgres)
 
     private static readonly string AuthCategory = typeof(AccessAuthentication).FullName!;
 
-    private static readonly string StoreCategory = typeof(AccessAuthentication).Namespace + ".DatabaseRefreshTokenStore";
+    private const string LibraryEventsCategory = "Pinotechrd.Security.Events";
 
     private static string Message(LogEvent logEvent) => logEvent.RenderMessage(System.Globalization.CultureInfo.InvariantCulture);
 
-    [GeneratedRegex(@"^(Sign-in succeeded for user [0-9a-f-]{36} in tenant [0-9a-f-]{36}\.|Sign-in failed in tenant ([0-9a-f-]{36}|null)\.|Signed out of a session in tenant [0-9a-f-]{36}\.|Password changed for user [0-9a-f-]{36} in tenant [0-9a-f-]{36}; every session ended\.|A spent refresh token was presented again in tenant [0-9a-f-]{36}; its session is revoked\.)$")]
+    [GeneratedRegex(@"^(Sign-in succeeded for user [0-9a-f-]{36} in tenant [0-9a-f-]{36}\.|Sign-in failed in tenant ([0-9a-f-]{36}|null)\.|Signed out of a session in tenant [0-9a-f-]{36}\.|Password changed for user [0-9a-f-]{36} in tenant [0-9a-f-]{36}; every session ended\.|A used refresh token was presented again in tenant ""?[0-9a-f-]{36}""? for user ""?[0-9a-f-]{36}""?; family ""?[0-9a-f-]{36}""? was revoked\.)$")]
     private static partial Regex AllowedMessage();
 
     // Breaks when a log line of the sign-in, refresh, logout, password change or token reuse carries the email, the slug, a
@@ -52,14 +52,17 @@ public partial class AuthLogTests(PostgresFixture postgres)
         secrets.AddRange([access, access2, first, second, third]);
 
         var events = sink.Events;
-        var own = events.Where(e => e.IsFrom(AuthCategory) || e.IsFrom(StoreCategory)).ToArray();
+        // The reuse of a refresh token is logged by the library (event 4204); its other events are covered by the whole-capture search below.
+        var own = events
+            .Where(e => e.IsFrom(AuthCategory) || (e.IsFrom(LibraryEventsCategory) && Message(e).StartsWith("A used refresh token", StringComparison.Ordinal)))
+            .ToArray();
         Assert.Equal(System.Net.HttpStatusCode.NoContent, change.StatusCode);
         Assert.Contains(own, e => Message(e).StartsWith("Sign-in succeeded for user " + user.ToString("D"), StringComparison.Ordinal)
             && Message(e).Contains(world.TenantA.ToString("D"), StringComparison.Ordinal));
         Assert.Contains(own, e => Message(e).StartsWith("Sign-in failed", StringComparison.Ordinal));
         Assert.Contains(own, e => Message(e).StartsWith("Signed out", StringComparison.Ordinal));
         Assert.Contains(own, e => Message(e).StartsWith("Password changed for user " + user.ToString("D"), StringComparison.Ordinal));
-        Assert.Contains(own, e => e.Level == LogEventLevel.Warning && Message(e).StartsWith("A spent refresh token", StringComparison.Ordinal));
+        Assert.Contains(own, e => e.Level == LogEventLevel.Warning && Message(e).StartsWith("A used refresh token", StringComparison.Ordinal));
         foreach (var e in own)
         {
             Assert.True(AllowedMessage().IsMatch(Message(e)), $"Unexpected log line of {e.CategoryOf()}: {Message(e)}");

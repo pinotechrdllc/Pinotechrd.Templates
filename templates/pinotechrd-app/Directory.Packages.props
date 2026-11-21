@@ -18,7 +18,7 @@
 
   <!-- EF Core on the shared data source (tenant persistence). The EF Core packages are pinned here so the version that
        Npgsql.EntityFrameworkCore.PostgreSQL and EFCore.NamingConventions bring (they accept any 10.0.x) is the one
-       Pinotechrd.Security 1.2.0-preview.3 requires. -->
+       Pinotechrd.Security 1.2.0-preview.5 requires. -->
   <ItemGroup Label="Persistence">
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.15" />
@@ -29,8 +29,8 @@
 
   <!-- The security library (JWT, ASP.NET Core Identity, roles and permissions), used by the Access module only. -->
   <ItemGroup Label="Security">
-    <PackageVersion Include="Pinotechrd.Security" Version="1.2.0-preview.3" />
-    <PackageVersion Include="Pinotechrd.Security.Abstractions" Version="1.2.0-preview.3" />
+    <PackageVersion Include="Pinotechrd.Security" Version="1.2.0-preview.5" />
+    <PackageVersion Include="Pinotechrd.Security.Abstractions" Version="1.2.0-preview.5" />
   </ItemGroup>
 
   <ItemGroup Label="Logging and telemetry">

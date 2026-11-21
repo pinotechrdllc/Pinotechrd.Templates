@@ -91,6 +91,7 @@ public sealed class AccessModule : IModule
             security => security.Tenancy.ClaimType = identity.TenantIdClaimType);
         DecorateSecurityStore(services);
         ReplaceRefreshTokenStore(services);
+        ReplaceTwoFactorAttemptStore(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ApiIdentityOptions>, TenantClaimTypeValidator>());
 
         var configuration = context.Configuration;
@@ -98,18 +99,29 @@ public sealed class AccessModule : IModule
         if (context.IsGeneratingApiDocument)
         {
             // The build-time contract generation runs with no configuration: a random key it never uses lets the start-time
-            // validation pass there. A running host always needs its own secret.
+            // validation pass there, and no key repository is configured (it needs the database), which the library's
+            // start check outside Development would refuse. A running host always needs its own secret and key ring.
             var secret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
             services.PostConfigure<PinotechrdSecurityOptions>(security =>
             {
                 security.Jwt.Secret = secret;
                 security.Jwt.Issuer = GenerationOnly;
                 security.Jwt.Audience = GenerationOnly;
+                security.AllowUnpersistedDataProtectionKeys = true;
             });
         }
 
         // sub stays sub: the platform would rename it to the name-identifier URI, and the API reads the claim as written.
         services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, bearer => bearer.MapInboundClaims = false);
+    }
+
+    // The template offers no two-factor sign-in: the library's in-memory attempt store, which the host refuses to start with
+    // outside Development, is replaced by one that fails closed (see DisabledTwoFactorAttemptStore). To enable two-factor,
+    // register AddPinotechrdEfTwoFactorAttemptStore<AccessDbContext>() here instead, with its migration.
+    private static void ReplaceTwoFactorAttemptStore(IServiceCollection services)
+    {
+        services.RemoveAll<ITwoFactorAttemptStore>();
+        services.AddSingleton<ITwoFactorAttemptStore, DisabledTwoFactorAttemptStore>();
     }
 
     // The library's in-memory store loses every session on restart and is not shared between instances: the tenant's

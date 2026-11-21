@@ -6,6 +6,7 @@ using MyApp.Api.Tests.Tenancy;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Modules.Access.Infrastructure.Persistence;
 using Npgsql;
+using Pinotechrd.Security.Core;
 using Pinotechrd.Security.Data;
 using Pinotechrd.Security.Entities;
 using Pinotechrd.Security.Enums;
@@ -23,8 +24,8 @@ namespace MyApp.Api.Tests.Support;
 /// </summary>
 internal static class AccessDatabase
 {
-    /// <summary>The module row every tenant of a test database has: the plans of the catalog name it by value.</summary>
-    public static readonly Guid AccessModuleId = Guid.Parse("a0000000-0000-4000-8000-0000000000a1");
+    /// <summary>The module row every tenant of a test database has: the plans of the catalog name it by this id, the library's id of its code.</summary>
+    public static readonly Guid AccessModuleId = SecurityModuleId.FromCode("ACCESS");
 
     public const string ReadCode = "ACCESS.USERS.READ";
 
@@ -109,8 +110,7 @@ internal static class AccessDatabase
             await InTenantAsync(services, tenant, async scope =>
             {
                 var db = scope.GetRequiredService<AccessDbContext>();
-                var module = SecurityModule.Create("Access", "ACCESS");
-                module.Id = AccessModuleId;
+                var module = new SecurityModule { Id = AccessModuleId, Name = "Access", Code = "ACCESS", CreatedAt = DateTime.UtcNow };
                 db.SecurityModules.Add(module);
                 db.SecurityPermissions.Add(SecurityPermission.Create(AccessModuleId, "Read users", ReadCode));
                 await db.SaveChangesAsync(TestContext.Current.CancellationToken);
