@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
 using MyApp.Api.Tests.Support;
 
@@ -112,12 +111,10 @@ public class ContractIsCurrentTests : IClassFixture<ContractIsCurrentTests.RealA
     }
 
     /// <summary>The application as it is, in Development because the document is not served in Production.</summary>
-    public sealed class RealApiFactory : WebApplicationFactory<Program>
+    public sealed class RealApiFactory : ApiHostBase
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development)
+        protected override void ConfigureHost(IWebHostBuilder builder) => builder.UseEnvironment(Environments.Development)
                 // A valid connection string that is never opened: the document needs the services, not a database.
-                .UseSetting(MyApp.BuildingBlocks.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString)
-                // The purge service would try the placeholder database within a minute: it does not change the document.
-                .UseSetting(ApiHostFactory.PurgeEnabledKey, "false");
+                .UseSetting(MyApp.BuildingBlocks.Infrastructure.Database.DatabaseRegistration.ConnectionStringKey, TestDatabase.PlaceholderConnectionString);
     }
 }

@@ -5,9 +5,7 @@ using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -33,7 +31,7 @@ namespace MyApp.Api.Tests.Support;
 /// <see cref="WithDatabase"/>, <see cref="WithoutDatabaseConnectionString"/> or sets the connection string itself.
 /// </para>
 /// </summary>
-public sealed class ApiHostFactory : WebApplicationFactory<Program>
+public sealed class ApiHostFactory : ApiHostBase
 {
     /// <summary>Request header whose value becomes <c>Connection.RemoteIpAddress</c>, before the production pipeline runs.</summary>
     public const string RemoteAddressHeader = "X-Test-Remote-Address";
@@ -41,21 +39,6 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     private readonly string _environment;
     // The Access module needs its JWT settings to start: every host gets the fake ones of AccessJwt, which a test replaces
     // (or empties, to prove the start fails) with WithSetting.
-    private readonly Dictionary<string, string?> _settings = new(AccessJwt.Settings)
-    {
-        [DatabaseRegistration.ConnectionStringKey] = TestDatabase.PlaceholderConnectionString,
-        // Outside Development the API refuses to start without a Data Protection certificate: every host gets a generated one
-        // (never committed), which a test replaces with WithDataProtectionCertificate, or removes (to prove the refusal) with WithoutDataProtectionCertificate.
-        [DataProtectionSettingKeys.CertificatePath] = TestCertificates.Default.CertificatePath,
-        [DataProtectionSettingKeys.KeyPath] = TestCertificates.Default.KeyPath,
-        // The refresh token purge service runs in every API host, its first round after a random wait of up to a minute:
-        // off in test hosts, so no test meets a purge it did not start; the purge service tests turn it on with WithSetting.
-        [PurgeEnabledKey] = "false",
-    };
-
-    /// <summary>The setting that turns the refresh token purge service on or off; false in every test host unless a test sets it.</summary>
-    public const string PurgeEnabledKey = "Access:RefreshTokens:Purge:Enabled";
-
     private bool _realDatabaseCheck;
     private bool _realTenantCatalog;
     private bool _realKeyRing;
@@ -67,7 +50,17 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     {
     }
 
-    private ApiHostFactory(string environment) => _environment = environment;
+    private ApiHostFactory(string environment)
+    {
+        _environment = environment;
+        // The Access module's fake JWT settings and the disabled purge come from ApiHostBase; a test replaces (or empties, to
+        // prove the start fails) them with WithSetting.
+        Settings[DatabaseRegistration.ConnectionStringKey] = TestDatabase.PlaceholderConnectionString;
+        // Outside Development the API refuses to start without a Data Protection certificate: every host gets a generated one
+        // (never committed), which a test replaces with WithDataProtectionCertificate, or removes (to prove the refusal) with WithoutDataProtectionCertificate.
+        Settings[DataProtectionSettingKeys.CertificatePath] = TestCertificates.Default.CertificatePath;
+        Settings[DataProtectionSettingKeys.KeyPath] = TestCertificates.Default.KeyPath;
+    }
 
     /// <summary>Creates a host that runs in the given environment, for example <see cref="Environments.Production"/>.</summary>
     public static ApiHostFactory ForEnvironment(string environment) => new(environment);
@@ -75,7 +68,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     /// <summary>Sets a configuration value (for example <c>Http:RateLimiting:PermitLimit</c>) for this host only.</summary>
     public ApiHostFactory WithSetting(string key, string value)
     {
-        _settings[key] = value;
+        Settings[key] = value;
         _realDatabaseCheck |= string.Equals(key, DatabaseRegistration.ConnectionStringKey, StringComparison.Ordinal);
         return this;
     }
@@ -104,8 +97,8 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public ApiHostFactory WithDataProtectionCertificate(TestCertificateFiles certificate)
     {
         ArgumentNullException.ThrowIfNull(certificate);
-        _settings[DataProtectionSettingKeys.CertificatePath] = certificate.CertificatePath;
-        _settings[DataProtectionSettingKeys.KeyPath] = certificate.KeyPath;
+        Settings[DataProtectionSettingKeys.CertificatePath] = certificate.CertificatePath;
+        Settings[DataProtectionSettingKeys.KeyPath] = certificate.KeyPath;
         return this;
     }
 
@@ -113,16 +106,16 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     public ApiHostFactory WithPreviousDataProtectionCertificate(int index, TestCertificateFiles certificate)
     {
         ArgumentNullException.ThrowIfNull(certificate);
-        _settings[DataProtectionSettingKeys.PreviousCertificatePath(index)] = certificate.CertificatePath;
-        _settings[DataProtectionSettingKeys.PreviousKeyPath(index)] = certificate.KeyPath;
+        Settings[DataProtectionSettingKeys.PreviousCertificatePath(index)] = certificate.CertificatePath;
+        Settings[DataProtectionSettingKeys.PreviousKeyPath(index)] = certificate.KeyPath;
         return this;
     }
 
     /// <summary>Leaves the certificate unset (even if the machine's environment sets one), for the tests of the start-up refusal.</summary>
     public ApiHostFactory WithoutDataProtectionCertificate()
     {
-        _settings[DataProtectionSettingKeys.CertificatePath] = null;
-        _settings[DataProtectionSettingKeys.KeyPath] = null;
+        Settings[DataProtectionSettingKeys.CertificatePath] = null;
+        Settings[DataProtectionSettingKeys.KeyPath] = null;
         return this;
     }
 
@@ -135,7 +128,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
     /// </summary>
     public ApiHostFactory WithoutDatabaseConnectionString()
     {
-        _settings[DatabaseRegistration.ConnectionStringKey] = null;
+        Settings[DatabaseRegistration.ConnectionStringKey] = null;
         _realDatabaseCheck = true;
         return this;
     }
@@ -159,7 +152,7 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
         return this;
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override void ConfigureHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(_environment);
         foreach (var (key, value) in _earlySettings)
@@ -167,7 +160,6 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
             builder.UseSetting(key, value);
         }
 
-        builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(_settings));
         builder.ConfigureTestServices(services =>
         {
             // The validation source generator only sees the endpoints of the project that calls AddValidation, so
