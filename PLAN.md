@@ -143,7 +143,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Purge refresh tokens: a background job, safe on several instances, deletes families past their absolute expiry or revoked longer than a grace period (every refresh adds a row; nothing deletes them yet).
 - [ ] Library: check lockout before consuming the refresh token in `RefreshAsync`, so a lockout caused by someone else's failed sign-ins does not end live sessions (review of U6b, 2026-11-19).
 - [ ] Library: count every failed sign-in under concurrency. `CheckPasswordSignInAsync` loses `AccessFailedAsync` updates on `ConcurrencyFailure` (30 parallel wrong passwords left the count at 4, never locked); retry or increment atomically, as the template's change-password does (review of U6c, 2026-11-19).
-- [ ] Make the advisory-lock helper one shared building block: `MigratorBootstrap` carries a copy of the internal `AdvisoryLock` try-lock.
+- [x] Make the advisory-lock helper one shared building block: `MigratorBootstrap` carried a copy of the internal `AdvisoryLock` try-lock; it is now public in `BuildingBlocks.Infrastructure/Database`.
 - [x] Auth endpoints: login, refresh, logout, change password. Refresh token in an `HttpOnly` cookie. A stricter named rate-limit policy for these endpoints; a per-user or per-tenant limit is a separate limiter placed after authorization.
 - [ ] The `Access` module (now in both architectures, ADR 0009): home of the users, roles and permissions endpoints.
 - [ ] Users, roles and permissions endpoints, with per-user allow and deny.

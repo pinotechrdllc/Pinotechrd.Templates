@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using Npgsql;
 

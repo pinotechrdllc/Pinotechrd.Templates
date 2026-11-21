@@ -1,10 +1,10 @@
 using Npgsql;
 
-namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
+namespace MyApp.BuildingBlocks.Infrastructure.Database;
 
 /// <summary>
-/// A PostgreSQL session advisory lock held on a connection of its own, shared by the tenant migrator and the database
-/// migrator. The key is a text; the lock is taken on its 64-bit hash (<c>hashtextextended(key, 0)</c>), so a collision
+/// A PostgreSQL session advisory lock held on a connection of its own, shared by the database migrator, the tenant migrator and
+/// the bootstrap command. The key is a text; the lock is taken on its 64-bit hash (<c>hashtextextended(key, 0)</c>), so a collision
 /// only makes two runs take turns.
 /// <para>
 /// The lock is taken with <c>pg_try_advisory_lock</c>, retried with a growing pause, not with the blocking
@@ -14,7 +14,7 @@ namespace MyApp.BuildingBlocks.Infrastructure.Tenancy;
 /// the setting.
 /// </para>
 /// </summary>
-internal static class AdvisoryLock
+public static class AdvisoryLock
 {
     private const string TryLockSql =
         "SELECT pg_catalog.set_config('idle_session_timeout', '0', false), pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended($1, 0))";
@@ -29,7 +29,7 @@ internal static class AdvisoryLock
     /// <param name="key">The lock's key.</param>
     /// <param name="cancellationToken">Stops the wait.</param>
     /// <returns>The lock connection; release with <see cref="ReleaseAsync"/>, then dispose it.</returns>
-    internal static async Task<NpgsqlConnection> AcquireAsync(NpgsqlDataSource dataSource, string key, CancellationToken cancellationToken)
+    public static async Task<NpgsqlConnection> AcquireAsync(NpgsqlDataSource dataSource, string key, CancellationToken cancellationToken)
     {
         var pause = FirstPause;
         while (true)
@@ -63,7 +63,7 @@ internal static class AdvisoryLock
     /// <param name="connection">The lock connection.</param>
     /// <param name="key">The lock's key.</param>
     /// <returns>A task that completes when the lock is released or known to be gone.</returns>
-    internal static async Task ReleaseAsync(NpgsqlConnection connection, string key)
+    public static async Task ReleaseAsync(NpgsqlConnection connection, string key)
     {
         try
         {
