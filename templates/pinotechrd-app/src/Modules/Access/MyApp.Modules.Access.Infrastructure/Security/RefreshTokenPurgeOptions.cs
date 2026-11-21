@@ -13,6 +13,18 @@ public sealed class RefreshTokenPurgeOptions
     /// <summary>The configuration section.</summary>
     public const string SectionName = RefreshTokenOptions.SectionName + ":Purge";
 
+    /// <summary>Gets or sets whether <see cref="RefreshTokenPurgeService"/> purges on a schedule. Default true.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Gets or sets the time between two rounds. At least 1 minute, at most 1 day. Default 1 hour.</summary>
+    public TimeSpan Interval { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>Gets or sets the random share of <see cref="Interval"/> added or removed from each wait, so instances drift apart. From 0 to 0.5. Default 0.10.</summary>
+    public double Jitter { get; set; } = 0.10;
+
+    /// <summary>Gets or sets the longest random wait before the first round, so instances started together do not align. From 0 to 1 hour. Default 1 minute.</summary>
+    public TimeSpan InitialDelay { get; set; } = TimeSpan.FromMinutes(1);
+
     /// <summary>Gets or sets how long a family is kept after it expired or was revoked. At least 1 hour. Default 7 days.</summary>
     public TimeSpan GracePeriod { get; set; } = TimeSpan.FromDays(7);
 
@@ -68,6 +80,21 @@ public sealed class RefreshTokenPurgeOptionsValidator : IValidateOptions<Refresh
         if (options.MaxBatchesPerTenant < 1)
         {
             failures.Add(Describe(nameof(RefreshTokenPurgeOptions.MaxBatchesPerTenant), options.MaxBatchesPerTenant.ToString(CultureInfo.InvariantCulture), "at least 1"));
+        }
+
+        if (options.Interval < TimeSpan.FromMinutes(1) || options.Interval > TimeSpan.FromDays(1))
+        {
+            failures.Add(Describe(nameof(RefreshTokenPurgeOptions.Interval), options.Interval.ToString("c", CultureInfo.InvariantCulture), "between 1 minute and 1 day"));
+        }
+
+        if (double.IsNaN(options.Jitter) || options.Jitter is < 0 or > 0.5)
+        {
+            failures.Add(Describe(nameof(RefreshTokenPurgeOptions.Jitter), options.Jitter.ToString(CultureInfo.InvariantCulture), "between 0 and 0.5"));
+        }
+
+        if (options.InitialDelay < TimeSpan.Zero || options.InitialDelay > TimeSpan.FromHours(1))
+        {
+            failures.Add(Describe(nameof(RefreshTokenPurgeOptions.InitialDelay), options.InitialDelay.ToString("c", CultureInfo.InvariantCulture), "between 0 and 1 hour"));
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);

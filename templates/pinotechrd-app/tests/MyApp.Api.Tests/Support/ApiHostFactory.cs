@@ -48,7 +48,13 @@ public sealed class ApiHostFactory : WebApplicationFactory<Program>
         // (never committed), which a test replaces with WithDataProtectionCertificate, or removes (to prove the refusal) with WithoutDataProtectionCertificate.
         [DataProtectionSettingKeys.CertificatePath] = TestCertificates.Default.CertificatePath,
         [DataProtectionSettingKeys.KeyPath] = TestCertificates.Default.KeyPath,
+        // The refresh token purge service runs in every API host, its first round after a random wait of up to a minute:
+        // off in test hosts, so no test meets a purge it did not start; the purge service tests turn it on with WithSetting.
+        [PurgeEnabledKey] = "false",
     };
+
+    /// <summary>The setting that turns the refresh token purge service on or off; false in every test host unless a test sets it.</summary>
+    public const string PurgeEnabledKey = "Access:RefreshTokens:Purge:Enabled";
 
     private bool _realDatabaseCheck;
     private bool _realTenantCatalog;
