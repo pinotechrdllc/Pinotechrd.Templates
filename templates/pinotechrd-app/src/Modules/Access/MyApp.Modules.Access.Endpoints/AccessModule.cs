@@ -123,6 +123,11 @@ public sealed class AccessModule : IModule
             .BindConfiguration(RefreshTokenOptions.SectionName)
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RefreshTokenOptions>, RefreshTokenOptionsValidator>());
+        services.AddScoped<RefreshTokenPurger>();
+        services.AddOptions<RefreshTokenPurgeOptions>()
+            .BindConfiguration(RefreshTokenPurgeOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RefreshTokenPurgeOptions>, RefreshTokenPurgeOptionsValidator>());
     }
 
     // The engine reads the per-user overrides from ISecurityStore: the library's registration is wrapped so they follow the

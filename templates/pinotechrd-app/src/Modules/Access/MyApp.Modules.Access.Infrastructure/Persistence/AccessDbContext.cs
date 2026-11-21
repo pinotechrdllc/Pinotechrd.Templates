@@ -77,6 +77,9 @@ public sealed class AccessDbContext(DbContextOptions<AccessDbContext> options, I
             entity.Property(e => e.Id).ValueGeneratedNever();
             // Revoking every session of a user filters on it.
             entity.HasIndex(e => e.UserId);
+            // The purger (RefreshTokenPurger) finds ended and revoked families by these two columns.
+            entity.HasIndex(e => e.AbsoluteExpiresAt).HasDatabaseName("ix_refresh_token_families_absolute_expires_at");
+            entity.HasIndex(e => e.RevokedAt).HasDatabaseName("ix_refresh_token_families_revoked_at").HasFilter("revoked_at IS NOT NULL");
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>

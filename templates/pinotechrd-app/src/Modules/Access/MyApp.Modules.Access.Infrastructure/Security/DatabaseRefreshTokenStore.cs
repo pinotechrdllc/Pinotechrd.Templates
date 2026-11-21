@@ -132,7 +132,7 @@ public sealed partial class DatabaseRefreshTokenStore(
                 new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = Hash(refreshToken) },
                 new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)securityStamp ?? DBNull.Value },
                 new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = AsUtc(expiresAtUtc) },
-                new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Interval, Value = options.Value.AbsoluteLifetime },
+                new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Interval, Value = new NpgsqlInterval(0, 0, options.Value.AbsoluteLifetime.Ticks / 10) },
             },
         };
 
