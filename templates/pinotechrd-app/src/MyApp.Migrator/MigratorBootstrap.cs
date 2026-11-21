@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using MyApp.BuildingBlocks.Domain;
+using MyApp.BuildingBlocks.Infrastructure.Database;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
 using MyApp.Modules.Access.Application.Tenants;
 using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
@@ -36,7 +37,7 @@ internal static class MigratorBootstrap
     {
         try
         {
-            var lockConnection = await AcquireLockAsync(services.GetRequiredService<NpgsqlDataSource>(), cancellationToken).ConfigureAwait(false);
+            var lockConnection = await AdvisoryLock.AcquireAsync(services.GetRequiredService<NpgsqlDataSource>(), LockKey, cancellationToken).ConfigureAwait(false);
             await using (lockConnection.ConfigureAwait(false))
             {
                 try
@@ -49,7 +50,7 @@ internal static class MigratorBootstrap
                 }
                 finally
                 {
-                    await ReleaseLockAsync(lockConnection).ConfigureAwait(false);
+                    await AdvisoryLock.ReleaseAsync(lockConnection, LockKey).ConfigureAwait(false);
                 }
             }
         }
@@ -240,62 +241,5 @@ internal static class MigratorBootstrap
                 cancellationToken)
             .ConfigureAwait(false);
         return updated == 1;
-    }
-
-    // The bootstrap lock, with the try-and-wait of the migrators' advisory locks: pg_try_advisory_lock retried with a growing
-    // pause, so a waiting run holds no connection, on a session that turns idle_session_timeout off for itself.
-    private static async Task<NpgsqlConnection> AcquireLockAsync(NpgsqlDataSource dataSource, CancellationToken cancellationToken)
-    {
-        const string TryLock =
-            "SELECT pg_catalog.set_config('idle_session_timeout', '0', false), pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended($1, 0))";
-        var pause = TimeSpan.FromMilliseconds(50);
-        while (true)
-        {
-            var connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var command = new NpgsqlCommand(TryLock, connection) { Parameters = { new NpgsqlParameter { Value = LockKey } } };
-                await using (command.ConfigureAwait(false))
-                {
-                    var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                    await using (reader.ConfigureAwait(false))
-                    {
-                        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.GetBoolean(1))
-                        {
-                            return connection;
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                await connection.DisposeAsync().ConfigureAwait(false);
-                throw;
-            }
-
-            await connection.DisposeAsync().ConfigureAwait(false);
-            await Task.Delay(pause, cancellationToken).ConfigureAwait(false);
-            pause = TimeSpan.FromTicks(Math.Min(pause.Ticks * 2, TimeSpan.TicksPerSecond));
-        }
-    }
-
-    // Not cancellable; a broken connection already lost the lock with its session.
-    private static async Task ReleaseLockAsync(NpgsqlConnection connection)
-    {
-        try
-        {
-            var command = new NpgsqlCommand("SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended($1, 0))", connection)
-            {
-                Parameters = { new NpgsqlParameter { Value = LockKey } },
-            };
-            await using (command.ConfigureAwait(false))
-            {
-                await command.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception) when (exception is NpgsqlException or InvalidOperationException)
-        {
-            // The session, and its lock, ended with the connection.
-        }
     }
 }
