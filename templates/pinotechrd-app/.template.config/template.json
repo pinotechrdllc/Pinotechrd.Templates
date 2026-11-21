@@ -97,6 +97,11 @@
     {
       "modifiers": [
         {
+          "exclude": [
+            "tests/MyApp.Api.Tests/Contract/TemplateSourceContractTests.cs"
+          ]
+        },
+        {
           "condition": "(clean)",
           "exclude": [
             "src/Modules/MyModule/**",

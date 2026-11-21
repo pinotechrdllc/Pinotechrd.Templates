@@ -23,6 +23,11 @@ internal static class SolutionLocator
     /// <summary>The template definition next to the solution. Only the template source has it: the engine never copies it.</summary>
     public static string TemplateConfigFile => Path.Combine(SolutionRoot(), ".template.config", "template.json");
 
-    /// <summary>Whether the tests run in the template source (which holds both architectures) rather than in a generated project.</summary>
-    public static bool IsTemplateSource => File.Exists(TemplateConfigFile);
+    /// <summary>
+    /// Whether the tests run in the template source (which holds both architectures) rather than in a generated project:
+    /// the template definition and the committed contract of every architecture are all there. A generated project has
+    /// none of them, so a source that lost one of them is not mistaken for an output and the contract tests fail instead.
+    /// </summary>
+    public static bool IsTemplateSource => File.Exists(TemplateConfigFile)
+        && OpenApiContract.SourceArchitectures.All(a => File.Exists(ContractFile(OpenApiContract.ArchitectureContractFileName(a))));
 }

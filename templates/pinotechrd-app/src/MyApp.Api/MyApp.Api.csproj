@@ -42,8 +42,13 @@
     <ProjectReference Remove="..\MyApp.Contracts\MyApp.Contracts.csproj" />
     <ProjectReference Remove="..\MyApp.Resources\MyApp.Resources.csproj" />
   </ItemGroup>
-  <Target Name="RequireContractArchitecture" BeforeTargets="CoreCompile" Condition="'$(UpdateContract)' == 'true' and '$(ContractArchitecture)' == ''">
-    <Error Text="Updating the contract of the template source needs -p:ContractArchitecture=clean or -p:ContractArchitecture=modular: the source holds both architectures." />
+  <!--
+    A file that exists in one architecture only must be excluded in .template.config/template.json AND removed in the
+    blocks above (Compile Remove / ProjectReference Remove), or the source regenerates the wrong contract.
+  -->
+  <Target Name="RequireContractArchitecture" BeforeTargets="CoreCompile"
+          Condition="'$(UpdateContract)' == 'true' and !($([System.String]::Equals('$(ContractArchitecture)', 'clean', System.StringComparison.Ordinal)) or $([System.String]::Equals('$(ContractArchitecture)', 'modular', System.StringComparison.Ordinal)))">
+    <Error Text="Updating the contract of the template source needs -p:ContractArchitecture=clean or -p:ContractArchitecture=modular (lower case, exactly): the source holds both architectures. Got '$(ContractArchitecture)'." />
   </Target>
 <!--#endif -->
 

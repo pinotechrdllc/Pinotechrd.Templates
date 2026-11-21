@@ -355,7 +355,7 @@ dotnet build src/MyApp.Api -p:UpdateContract=true
 ```
 
 <!--#if (templateSource) -->
-In the template source, which holds both architectures, the build needs the architecture too: `dotnet build src/MyApp.Api -p:UpdateContract=true -p:ContractArchitecture=clean` or `=modular`. It builds only that architecture and writes `contract/openapi.v1.clean.json` or `contract/openapi.v1.modular.json`; without `ContractArchitecture` the build fails. A generated project ships one of them as `contract/openapi.v1.json` and has no `ContractArchitecture` property.
+In the template source, which holds both architectures, the build needs the architecture too: `dotnet build src/MyApp.Api -p:UpdateContract=true -p:ContractArchitecture=clean` or `=modular`. It builds only that architecture and writes `contract/openapi.v1.clean.json` or `contract/openapi.v1.modular.json`; without `ContractArchitecture`, or with any value other than exactly `clean` or `modular`, the build fails. A file that exists in one architecture only must be excluded in `.template.config/template.json` and also removed in the `templateSource` block of `src/MyApp.Api/MyApp.Api.csproj` (`Compile Remove`), or the source regenerates the wrong contract. A generated project ships one of them as `contract/openapi.v1.json` and has no `ContractArchitecture` property.
 
 <!--#endif -->
 That build starts the application without a server, in the Production environment and with no configuration, to read its endpoints. Nothing registered at startup may depend on the environment or require a database or any other external service to describe the API. A normal build does not touch the file.

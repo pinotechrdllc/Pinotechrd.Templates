@@ -318,8 +318,9 @@ function Assert-ContractShipped([string]$Root) {
             Where-Object { Select-String -LiteralPath $_.FullName -SimpleMatch $name -CaseSensitive -Quiet }
         if ($found) { throw "Template source property '$name' left in an output: $($found.FullName -join ', ')" }
     }
-    $text = Get-Content -LiteralPath $contracts[0].FullName -Raw
-    if ($text -match 'MyModule|my-module') { throw "$($contracts[0].FullName) mentions the placeholder module (MyModule / my-module)." }
+    # Tests that only run in the template source must not ship (they would be permanently skipped).
+    $sourceOnlyTests = Get-ChildItem -LiteralPath $Root -Recurse -File -Force -Filter 'TemplateSourceContractTests.cs'
+    if ($sourceOnlyTests) { throw "Source-only tests left in an output: $($sourceOnlyTests.FullName -join ', ')" }
 }
 
 # The path a developer follows on day one in a modular project: add an endpoint to the module, see the committed contract
@@ -409,6 +410,18 @@ try {
         foreach ($architecture in 'clean', 'modular') {
             $generated = New-ContractFile (Join-Path $template 'src/MyApp.Api') (Join-Path $work "source-$architecture.json") @("-p:ContractArchitecture=$architecture")
             Assert-SameBytes "The $architecture contract" (Join-Path $template "contract/openapi.v1.$architecture.json") $generated
+        }
+    }
+    finally {
+        Remove-BuildOutput $template
+        Remove-LockFile $template
+    }
+
+    # The contract tests of the source itself (they need no database: the host is built with a placeholder connection string).
+    Write-Host '== Template source: contract tests'
+    try {
+        Invoke-Checked 'Source contract tests' {
+            dotnet test (Join-Path $template 'tests/MyApp.Api.Tests') --nologo --filter 'FullyQualifiedName~.Contract.'
         }
     }
     finally {

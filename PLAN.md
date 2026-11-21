@@ -157,6 +157,7 @@ Short experiments that test decisions with no outside evidence. Each one ends wi
 - [ ] Refuse access tokens of ended sessions (library #63) with a template step once the library exposes the check publicly: `UseTenantResolution`, which does the check (`Jwt.ValidateSecurityStamp`), is not used. record the decision in a new ADR that amends ADR 0009 §5; logout also renews the stamp.
 - [ ] Register a shared `IDistributedCache` and call `ISecurityCacheInvalidator` on role/permission changes.
 - [ ] Two-factor sign-in: EF two-factor attempt store (`AddPinotechrdEfTwoFactorAttemptStore`) and its migration, then the second step of the sign-in; until then `DisabledTwoFactorAttemptStore` fails closed.
+- [ ] Flaky under a loaded machine: `BootstrapOperatorGuardTests.ARerunWithTheSameAdminEmailStillExitsZero` exited 1 once in a local harness run (2026-11-21) and passed alone three times; find the cause.
 - [ ] Tests: one tenant cannot read another tenant's data; the tenant schema is set on every connection; every endpoint declares a permission.
 - [ ] Phase review against the quality bar (tokens, application security, multi-tenancy); findings added as tasks.
 
