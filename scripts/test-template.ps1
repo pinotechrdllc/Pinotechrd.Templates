@@ -408,6 +408,9 @@ try {
     Write-Host '== Template source: each architecture reproduces its committed contract'
     try {
         foreach ($architecture in 'clean', 'modular') {
+            # Each architecture has its own project references, so the lock files of the previous one would fail a
+            # locked restore (NU1004 in CI); the first restore of each architecture writes its own.
+            Remove-LockFile $template
             $generated = New-ContractFile (Join-Path $template 'src/MyApp.Api') (Join-Path $work "source-$architecture.json") @("-p:ContractArchitecture=$architecture")
             Assert-SameBytes "The $architecture contract" (Join-Path $template "contract/openapi.v1.$architecture.json") $generated
         }
