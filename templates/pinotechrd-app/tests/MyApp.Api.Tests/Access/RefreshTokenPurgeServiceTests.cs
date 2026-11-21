@@ -63,7 +63,7 @@ public class RefreshTokenPurgeServiceTests(PostgresFixture postgres)
         StartAsync([.. Enumerable.Repeat(TenantStatus.Active, count)], configure);
 
     private static RefreshTokenPurgeService NewService(IServiceProvider services, RefreshTokenPurgeOptions? options = null, TimeProvider? clock = null) =>
-        new(services.GetRequiredService<IServiceScopeFactory>(), Options.Create(options ?? new RefreshTokenPurgeOptions()),
+        new(services.GetRequiredService<ITenantJobRunner>(), Options.Create(options ?? new RefreshTokenPurgeOptions()),
             services.GetRequiredService<ILogger<RefreshTokenPurgeService>>(), clock);
 
     private static async Task<object?> SqlAsync(IServiceProvider services, string sql, NpgsqlConnection? on = null)

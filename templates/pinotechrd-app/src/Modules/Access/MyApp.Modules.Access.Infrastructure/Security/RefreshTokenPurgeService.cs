@@ -1,14 +1,11 @@
 using System.Data.Common;
 using System.Security.Cryptography;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MyApp.BuildingBlocks.Infrastructure.Tenancy;
-using MyApp.Modules.Access.Infrastructure.Persistence.Catalog;
 using Npgsql;
-using Pinotechrd.Security.Enums;
 
 namespace MyApp.Modules.Access.Infrastructure.Security;
 
@@ -19,11 +16,10 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// the host stops. It does nothing when <see cref="RefreshTokenPurgeOptions.Enabled"/> is false. Every instance runs it; the
 /// purger's advisory lock lets one purge a tenant at a time.
 /// <para>
-/// A round reads the Active and Suspended tenants of the catalog (Provisioning ones have no schema yet, Cancelled ones are
-/// left alone), then visits them one after another, each in its own scope with the tenant set through
-/// <see cref="ICurrentTenantInitializer.Initialize"/>. A tenant whose schema or role is missing, whose database call fails
+/// A round has the <see cref="ITenantJobRunner"/> visit the in-service tenants (Active and Suspended; Provisioning ones have
+/// no schema yet, Cancelled ones are left alone) one after another, each in its own scope with the tenant set. A tenant whose schema or role is missing, whose database call fails
 /// or times out, is logged (tenant id, exception type, SQLSTATE; never a message) and skipped; the round goes on. A failing
-/// catalog ends the round; the next one retries. Nothing but a stop of the host ends the loop.
+/// tenant directory ends the round; the next one retries. Nothing but a stop of the host ends the loop.
 /// </para>
 /// <para>
 /// The tenant list is read once, at the start of each round. A tenant whose status changes during a round (cancelled, say)
@@ -34,12 +30,12 @@ namespace MyApp.Modules.Access.Infrastructure.Security;
 /// any role with SQL access can hold the lock (see <see cref="RefreshTokenPurger"/>).
 /// </para>
 /// </summary>
-/// <param name="scopeFactory">Creates the scope of the catalog read and one scope per tenant.</param>
+/// <param name="jobRunner">Visits each in-service tenant with the purge.</param>
 /// <param name="options">The schedule.</param>
 /// <param name="logger">The logger of the rounds.</param>
 /// <param name="timeProvider">The clock of the waits; the system's when none is registered.</param>
 public sealed partial class RefreshTokenPurgeService(
-    IServiceScopeFactory scopeFactory,
+    ITenantJobRunner jobRunner,
     IOptions<RefreshTokenPurgeOptions> options,
     ILogger<RefreshTokenPurgeService> logger,
     TimeProvider? timeProvider = null) : BackgroundService
@@ -55,10 +51,12 @@ public sealed partial class RefreshTokenPurgeService(
     /// <returns>The counts of the round.</returns>
     public async Task<RefreshTokenPurgeRound> RunRoundAsync(CancellationToken cancellationToken)
     {
-        IReadOnlyList<Guid> tenants;
+        IReadOnlyList<TenantJobOutcome<RefreshTokenPurgeResult>> outcomes;
         try
         {
-            tenants = await ListTenantsAsync(cancellationToken).ConfigureAwait(false);
+            outcomes = await jobRunner.ForEachTenantAsync(
+                (provider, token) => provider.GetRequiredService<RefreshTokenPurger>().PurgeAsync(token),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -68,47 +66,37 @@ public sealed partial class RefreshTokenPurgeService(
 
         var deleted = 0;
         var failed = 0;
-        foreach (var tenantId in tenants)
+        foreach (var outcome in outcomes)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+            if (outcome.Error is { } exception)
             {
-                var scope = scopeFactory.CreateAsyncScope();
-                await using (scope.ConfigureAwait(false))
+                failed++;
+                if (exception is DbException or InvalidOperationException or TimeoutException or ArgumentException)
                 {
-                    scope.ServiceProvider.GetRequiredService<ICurrentTenantInitializer>().Initialize(tenantId);
-                    var result = await scope.ServiceProvider.GetRequiredService<RefreshTokenPurger>()
-                        .PurgeAsync(cancellationToken).ConfigureAwait(false);
-                    deleted += result.Deleted;
-                    CountSkips(tenantId, result.LockSkipped);
+                    // A missing schema or role (3F000, 42P01, 42501, 28000, 22023), the purger's schema guard, a timeout, a database that is down.
+                    LogTenantSkipped(logger, outcome.TenantId, exception.GetType().Name, SqlStateOf(exception));
+                }
+                else
+                {
+                    LogTenantFailed(logger, outcome.TenantId, exception.GetType().Name);
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            else if (outcome.Result is { } result)
             {
-                throw;
-            }
-            catch (Exception exception) when (exception is DbException or InvalidOperationException or TimeoutException or ArgumentException)
-            {
-                // A missing schema or role (3F000, 42P01, 42501, 28000, 22023), the purger's schema guard, a timeout, a database that is down.
-                failed++;
-                LogTenantSkipped(logger, tenantId, exception.GetType().Name, SqlStateOf(exception));
-            }
-            catch (Exception exception)
-            {
-                failed++;
-                LogTenantFailed(logger, tenantId, exception.GetType().Name);
+                deleted += result.Deleted;
+                CountSkips(outcome.TenantId, result.LockSkipped);
             }
         }
 
         // The counts of tenants that left the list are forgotten.
-        var listed = tenants.ToHashSet();
+        var listed = outcomes.Select(o => o.TenantId).ToHashSet();
         foreach (var gone in _skippedRounds.Keys.Where(id => !listed.Contains(id)).ToList())
         {
             _skippedRounds.Remove(gone);
         }
 
-        LogRound(logger, tenants.Count, deleted, failed);
-        return new RefreshTokenPurgeRound(tenants.Count, deleted, failed);
+        LogRound(logger, outcomes.Count, deleted, failed);
+        return new RefreshTokenPurgeRound(outcomes.Count, deleted, failed);
     }
 
     /// <inheritdoc />
@@ -142,20 +130,6 @@ public sealed partial class RefreshTokenPurgeService(
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // The host is stopping.
-        }
-    }
-
-    private async Task<IReadOnlyList<Guid>> ListTenantsAsync(CancellationToken cancellationToken)
-    {
-        var scope = scopeFactory.CreateAsyncScope();
-        await using (scope.ConfigureAwait(false))
-        {
-            var catalog = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
-            return await catalog.Tenants.AsNoTracking()
-                .Where(t => t.Id != Guid.Empty && (t.Status == TenantStatus.Active || t.Status == TenantStatus.Suspended))
-                .OrderBy(t => t.Id)
-                .Select(t => t.Id)
-                .ToListAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 

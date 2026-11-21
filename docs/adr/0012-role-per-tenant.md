@@ -44,6 +44,12 @@ tenant was read through another. The project owner decided (2026-11-18) that Pos
    fails closed and the connection is closed.
 6. The migrator's tenant scope is set with the internal `CurrentTenant.InitializeForMigration`: its connections keep
    the migrator's login (role `none`). Every other `ICurrentTenant` assumes the role.
+   Business code that needs per-tenant background work uses `ITenantJobRunner` of the infrastructure building block,
+   the only way to run it: it never takes a tenant id. It lists the in-service tenants from `ITenantDirectory` and runs
+   the work for each in a new scope, whose tenant it sets with `ICurrentTenantInitializer.Initialize` (never the
+   migration variant), so the work assumes the tenant's role. The architecture rule that keeps the initializer out of
+   business assemblies reads type references, so it guards against mistakes, not a caller that reaches the type through
+   reflection; the tenant role still confines such a session to one tenant's schema.
 7. Pool reset (`DISCARD ALL`, or `SET SESSION AUTHORIZATION DEFAULT` and `RESET ALL`) clears the role; `No Reset On
    Close` and application SQL that changes the role stay refused.
 

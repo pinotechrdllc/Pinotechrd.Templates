@@ -60,6 +60,7 @@ public static class TenantPersistenceRegistration
         services.TryAddScoped<ICurrentTenant>(sp => sp.GetRequiredService<CurrentTenant>());
         services.TryAddScoped<ICurrentTenantInitializer>(sp => sp.GetRequiredService<CurrentTenant>());
         services.TryAddSingleton<TenantDataSource>();
+        services.TryAddSingleton<ITenantJobRunner, TenantJobRunner>();
         return services;
     }
 

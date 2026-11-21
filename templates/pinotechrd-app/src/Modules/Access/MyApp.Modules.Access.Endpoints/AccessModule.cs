@@ -66,6 +66,8 @@ public sealed class AccessModule : IModule
         // The catalog answers which tenant the X-Tenant header names before login, and whether a token's tenant is active.
         services.AddSharedDbContext<CatalogDbContext>(CatalogDbContext.Schema);
         services.TryAddScoped<ITenantCatalog, CatalogTenantCatalog>();
+        // The tenant job runner (the refresh token purge) lists the in-service tenants through it; it reads the same columns.
+        services.TryAddScoped<ITenantDirectory, CatalogTenantDirectory>();
         services.AddAuthenticatedRequestStep<TenantStatusStep>();
 
         // The auth endpoints (Auth/) work through this port, never through the library's free-text results.
