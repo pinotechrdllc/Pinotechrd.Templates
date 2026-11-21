@@ -354,6 +354,10 @@ Regenerate it after changing an endpoint, a request or a response, and commit it
 dotnet build src/MyApp.Api -p:UpdateContract=true
 ```
 
+<!--#if (templateSource) -->
+In the template source, which holds both architectures, the build needs the architecture too: `dotnet build src/MyApp.Api -p:UpdateContract=true -p:ContractArchitecture=clean` or `=modular`. It builds only that architecture and writes `contract/openapi.v1.clean.json` or `contract/openapi.v1.modular.json`; without `ContractArchitecture` the build fails. A generated project ships one of them as `contract/openapi.v1.json` and has no `ContractArchitecture` property.
+
+<!--#endif -->
 That build starts the application without a server, in the Production environment and with no configuration, to read its endpoints. Nothing registered at startup may depend on the environment or require a database or any other external service to describe the API. A normal build does not touch the file.
 
 The contract is generated, and compared with the served document by its test, with the .NET SDK that `global.json` selects: `10.0.100` or a later 10.0 SDK, the latest installed feature band (`rollForward: latestFeature`), so two machines can select different SDKs (`dotnet --version` in the project folder shows which). Different SDK versions can emit slightly different schema text for the same API. If the contract test fails only because of such text, with no change to the API, regenerate the contract with the SDK that CI selects and commit it; if two feature bands keep producing different documents, make every machine and CI select the same one, for example by setting `version` in `global.json` to that SDK with `rollForward: latestPatch`. Outside Production the running API also serves the same document at `/openapi/v1.json`, for inspection.

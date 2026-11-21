@@ -25,6 +25,28 @@
     <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
   </ItemGroup>
 
+<!--#if (templateSource) -->
+  <!--
+    Template source only (the engine removes this block: templateSource is always false). The source lists both
+    architectures, so a contract run picks one with -p:ContractArchitecture=clean|modular, which builds only that
+    architecture and writes contract/openapi.v1.<architecture>.json. A generated project has neither property.
+  -->
+  <ItemGroup Condition="'$(ContractArchitecture)' == 'clean'">
+    <Compile Remove="BusinessComposition.Modular.cs" />
+    <ProjectReference Remove="..\Modules\MyModule\MyApp.Modules.MyModule.Endpoints\MyApp.Modules.MyModule.Endpoints.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ContractArchitecture)' == 'modular'">
+    <Compile Remove="BusinessComposition.Clean.cs" />
+    <ProjectReference Remove="..\MyApp.Application\MyApp.Application.csproj" />
+    <ProjectReference Remove="..\MyApp.Infrastructure\MyApp.Infrastructure.csproj" />
+    <ProjectReference Remove="..\MyApp.Contracts\MyApp.Contracts.csproj" />
+    <ProjectReference Remove="..\MyApp.Resources\MyApp.Resources.csproj" />
+  </ItemGroup>
+  <Target Name="RequireContractArchitecture" BeforeTargets="CoreCompile" Condition="'$(UpdateContract)' == 'true' and '$(ContractArchitecture)' == ''">
+    <Error Text="Updating the contract of the template source needs -p:ContractArchitecture=clean or -p:ContractArchitecture=modular: the source holds both architectures." />
+  </Target>
+<!--#endif -->
+
   <!--
     The OpenAPI document is frozen in contract/openapi.v1.json. It is generated only when the contract is updated:
       dotnet build src/MyApp.Api -p:UpdateContract=true
@@ -35,6 +57,9 @@
     <OpenApiGenerateDocuments Condition="'$(UpdateContract)' == 'true'">true</OpenApiGenerateDocuments>
     <OpenApiDocumentsDirectory>$(BaseIntermediateOutputPath)openapi</OpenApiDocumentsDirectory>
     <ContractFile>$(MSBuildProjectDirectory)/../../contract/openapi.v1.json</ContractFile>
+<!--#if (templateSource) -->
+    <ContractFile Condition="'$(ContractArchitecture)' != ''">$(MSBuildProjectDirectory)/../../contract/openapi.v1.$(ContractArchitecture).json</ContractFile>
+<!--#endif -->
   </PropertyGroup>
 
   <Target Name="CopyOpenApiContract" AfterTargets="GenerateOpenApiDocuments" Condition="'$(UpdateContract)' == 'true'">

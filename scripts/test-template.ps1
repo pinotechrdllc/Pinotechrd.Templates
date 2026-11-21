@@ -98,6 +98,9 @@ $architecturePaths = @{
     )
 }
 
+# Template source properties that exist only to build one architecture of the source: never in an output.
+$sourceOnlyNames = @('ContractArchitecture', 'templateSource')
+
 # A conditional region left behind by the template engine: <!--#if ... -->, <!--#else -->, <!--#endif -->.
 $markerPattern = '<!--\s*#(if|elif|else|endif)\b'
 
@@ -285,6 +288,40 @@ function Copy-Fixture([string]$Source, [string]$Destination, [hashtable]$Names) 
     }
 }
 
+# Regenerates the contract of the project that Project names into a file, never into the project's own contract folder
+# (ContractFile as a global property overrides the project's value), and returns the full path of that file.
+function New-ContractFile([string]$Project, [string]$Destination, [string[]]$Extra = @()) {
+    Invoke-Checked "Regenerating the contract of $Project into $Destination" {
+        dotnet build $Project --no-incremental -p:UpdateContract=true "-p:ContractFile=$Destination" @Extra --nologo -v:q | Out-Host
+    }
+    if (-not (Test-Path -LiteralPath $Destination)) { throw "The contract build wrote no file at $Destination." }
+    $Destination
+}
+
+function Assert-SameBytes([string]$What, [string]$Expected, [string]$Actual) {
+    if ((Get-FileHash -LiteralPath $Expected).Hash -ne (Get-FileHash -LiteralPath $Actual).Hash) {
+        throw "$What differs: $Actual is not byte-identical to $Expected."
+    }
+    Write-Host "$What is byte-identical."
+}
+
+# Each output ships exactly one contract, named contract/openapi.v1.json, with no trace of the source-only properties
+# and none of the placeholder module (the stamp module ships no endpoints, so no route of it is in the contract).
+function Assert-ContractShipped([string]$Root) {
+    $contracts = @(Get-ChildItem -LiteralPath (Join-Path $Root 'contract') -Filter 'openapi.v1*.json')
+    if ($contracts.Count -ne 1 -or $contracts[0].Name -ne 'openapi.v1.json') {
+        throw "Expected exactly contract/openapi.v1.json, found: $(($contracts.Name) -join ', ')"
+    }
+    foreach ($name in $sourceOnlyNames) {
+        $found = Get-ChildItem -LiteralPath $Root -Recurse -File -Force |
+            Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' } |
+            Where-Object { Select-String -LiteralPath $_.FullName -SimpleMatch $name -CaseSensitive -Quiet }
+        if ($found) { throw "Template source property '$name' left in an output: $($found.FullName -join ', ')" }
+    }
+    $text = Get-Content -LiteralPath $contracts[0].FullName -Raw
+    if ($text -match 'MyModule|my-module') { throw "$($contracts[0].FullName) mentions the placeholder module (MyModule / my-module)." }
+}
+
 # The path a developer follows on day one in a modular project: add an endpoint to the module, see the committed contract
 # reported as stale, regenerate it with the documented command, and get routing, tagging and validation right. Runs from
 # inside the generated project, after its own build and tests passed.
@@ -365,6 +402,20 @@ try {
         Remove-LockFile $template
     }
 
+    # One contract per architecture: the source builds each architecture on its own and must reproduce its committed
+    # contract. Written to temp files, so the repository is never touched.
+    Write-Host '== Template source: each architecture reproduces its committed contract'
+    try {
+        foreach ($architecture in 'clean', 'modular') {
+            $generated = New-ContractFile (Join-Path $template 'src/MyApp.Api') (Join-Path $work "source-$architecture.json") @("-p:ContractArchitecture=$architecture")
+            Assert-SameBytes "The $architecture contract" (Join-Path $template "contract/openapi.v1.$architecture.json") $generated
+        }
+    }
+    finally {
+        Remove-BuildOutput $template
+        Remove-LockFile $template
+    }
+
     Write-Host '== Pack'
     Invoke-Checked 'dotnet pack' {
         dotnet pack (Join-Path $repo 'Pinotechrd.Templates.csproj') --configuration Release --output $packages --nologo --verbosity quiet
@@ -390,6 +441,7 @@ try {
         Assert-Layout $output $case.Architecture $case.Module
         if ($case.Architecture -eq 'modular') { Assert-ModuleComposed $output $case.Module }
         Assert-SolutionMatchesProjects $solution
+        Assert-ContractShipped $output
         $shipped = Get-LockFile $output
         if ($shipped) { throw "The generated project has lock files before its first restore: $($shipped.FullName -join ', ')" }
 
@@ -398,6 +450,8 @@ try {
         try {
             Write-Host "SDK: $(dotnet --version)"
             Invoke-Checked "Building $($case.Name)" { dotnet build $solution --configuration Release --nologo -warnaserror }
+            $regenerated = New-ContractFile "src/$projectName.Api" (Join-Path $work "$($case.Name)-contract.json")
+            Assert-SameBytes "The shipped contract of $($case.Name)" (Join-Path $output 'contract/openapi.v1.json') $regenerated
             $lockTimer = [Diagnostics.Stopwatch]::StartNew()
             Assert-LockedRestore $solution
             Write-Host ("Lock file checks took {0:N1} s." -f $lockTimer.Elapsed.TotalSeconds)
@@ -420,6 +474,7 @@ try {
         Assert-Layout $output $case.Architecture $case.Module
         if ($case.Architecture -eq 'modular') { Assert-ModuleComposed $output $case.Module }
         else { Assert-NameAbsent $output $case.Module }
+        Assert-ContractShipped $output
         Assert-SolutionMatchesProjects (Join-Path $output "$projectName.slnx")
     }
 

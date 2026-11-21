@@ -19,4 +19,10 @@ internal static class SolutionLocator
 
     /// <summary>The absolute path of a file under the <c>contract/</c> folder of the solution.</summary>
     public static string ContractFile(string name) => Path.Combine(SolutionRoot(), "contract", name);
+
+    /// <summary>The template definition next to the solution. Only the template source has it: the engine never copies it.</summary>
+    public static string TemplateConfigFile => Path.Combine(SolutionRoot(), ".template.config", "template.json");
+
+    /// <summary>Whether the tests run in the template source (which holds both architectures) rather than in a generated project.</summary>
+    public static bool IsTemplateSource => File.Exists(TemplateConfigFile);
 }
